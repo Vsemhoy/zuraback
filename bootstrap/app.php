@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\EnsureSpaRequestIsTrusted;
+use App\Http\Middleware\EnsureScopeMember;
 use App\Http\Middleware\EnsureUserIsActive;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -18,6 +19,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'active' => EnsureUserIsActive::class,
             'spa.request' => EnsureSpaRequestIsTrusted::class,
+            'scope.member' => EnsureScopeMember::class,
         ]);
 
         $middleware->validateCsrfTokens(except: ['api/auth/*']);

@@ -32,6 +32,41 @@ class Scope extends DomainModel
         return $this->hasMany(Task::class);
     }
 
+    public function facts(): HasMany
+    {
+        return $this->hasMany(Fact::class);
+    }
+
+    public function books(): HasMany
+    {
+        return $this->hasMany(Book::class);
+    }
+
+    public function eventTypes(): HasMany
+    {
+        return $this->hasMany(EventType::class);
+    }
+
+    public function eventSections(): HasMany
+    {
+        return $this->hasMany(EventSection::class);
+    }
+
+    public function events(): HasMany
+    {
+        return $this->hasMany(Event::class);
+    }
+
+    public function responsibilityAreas(): HasMany
+    {
+        return $this->hasMany(ResponsibilityArea::class);
+    }
+
+    public function entityLinks(): HasMany
+    {
+        return $this->hasMany(EntityLink::class);
+    }
+
     protected function casts(): array
     {
         return ['is_private' => 'boolean', 'is_active' => 'boolean', 'settings' => 'array'];

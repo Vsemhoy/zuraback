@@ -38,7 +38,7 @@ return new class extends Migration
             $table->date('active_until')->nullable();
             $table->timestamps();
 
-            $table->index(['user_id', 'active_from', 'active_until']);
+            $table->index(['user_id', 'active_from', 'active_until'], 'resp_assign_user_period_idx');
         });
 
         Schema::table('projects', function (Blueprint $table): void {
