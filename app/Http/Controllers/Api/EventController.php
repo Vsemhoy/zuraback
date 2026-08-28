@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\StoreEventRequest;
+use App\Http\Requests\Api\UpdateEventRequest;
 use App\Http\Resources\EventResource;
 use App\Models\Event;
 use App\Models\Scope;
@@ -43,5 +44,17 @@ class EventController extends Controller
         abort_unless($event->scope_id === $scope->id, 404);
 
         return new EventResource($event->load(['type:id,name,color', 'section:id,name']));
+    }
+
+    public function update(UpdateEventRequest $request, Scope $scope, Event $event): EventResource
+    {
+        abort_unless($event->scope_id === $scope->id, 404);
+        $data = $request->validated();
+        foreach (['type_id' => 'eventTypes', 'section_id' => 'eventSections', 'parent_id' => 'events'] as $key => $relation) {
+            if (isset($data[$key])) abort_unless($scope->{$relation}()->whereKey($data[$key])->exists(), 422, "Invalid {$key} for this scope.");
+        }
+        abort_if(($data['parent_id'] ?? null) === $event->id, 422, 'An event cannot be its own parent.');
+        $event->update($data);
+        return new EventResource($event->fresh()->load(['type:id,name,color', 'section:id,name']));
     }
 }

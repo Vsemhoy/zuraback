@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\StoreFactRequest;
+use App\Http\Requests\Api\UpdateFactRequest;
 use App\Http\Resources\FactResource;
 use App\Models\Fact;
 use App\Models\Scope;
@@ -37,5 +38,12 @@ class FactController extends Controller
         abort_unless($fact->scope_id === $scope->id, 404);
 
         return new FactResource($fact);
+    }
+
+    public function update(UpdateFactRequest $request, Scope $scope, Fact $fact): FactResource
+    {
+        abort_unless($fact->scope_id === $scope->id, 404);
+        $fact->update($request->validated());
+        return new FactResource($fact->fresh());
     }
 }

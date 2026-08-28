@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-#[Fillable(['scope_id', 'project_id', 'parent_id', 'created_by', 'assignee_id', 'approved_by', 'responsibility_area_id', 'title', 'description', 'result', 'status', 'priority', 'due_at', 'completed_at', 'approved_at', 'tracked_seconds', 'is_pinned', 'sort_order', 'meta', 'counts_for_compensation'])]
+#[Fillable(['scope_id', 'project_id', 'parent_id', 'number', 'task_key', 'created_by', 'assignee_id', 'approved_by', 'responsibility_area_id', 'title', 'description', 'result', 'status', 'priority', 'due_at', 'completed_at', 'approved_at', 'tracked_seconds', 'is_pinned', 'sort_order', 'meta', 'counts_for_compensation'])]
 class Task extends DomainModel
 {
     use HasEntityLinks, SoftDeletes;
@@ -31,6 +31,21 @@ class Task extends DomainModel
     public function children(): HasMany
     {
         return $this->hasMany(self::class, 'parent_id');
+    }
+
+    public function checklistItems(): HasMany
+    {
+        return $this->hasMany(TaskChecklistItem::class)->orderBy('sort_order');
+    }
+
+    public function blockers(): HasMany
+    {
+        return $this->hasMany(TaskBlocker::class)->latest('blocked_at');
+    }
+
+    public function keyAliases(): HasMany
+    {
+        return $this->hasMany(TaskKeyAlias::class);
     }
 
     public function creator(): BelongsTo

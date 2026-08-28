@@ -23,6 +23,7 @@ class ProjectFactory extends Factory
             'scope_id' => Scope::factory(),
             'created_by' => User::factory(),
             'title' => fake()->sentence(3),
+            'key' => strtoupper(fake()->unique()->lexify('???')),
             'status' => 'planning',
         ];
     }

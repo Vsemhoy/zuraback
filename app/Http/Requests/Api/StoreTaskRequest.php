@@ -23,6 +23,7 @@ class StoreTaskRequest extends WorkspaceRequest
             'responsibility_area_id' => ['nullable', 'ulid'],
             'title' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
+            'result' => ['nullable', 'string'],
             'status' => ['sometimes', 'in:todo,in_progress,blocked,review,done,cancelled'],
             'priority' => ['sometimes', 'integer', 'between:1,5'],
             'due_at' => ['nullable', 'date'],

@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-#[Fillable(['book_id', 'parent_id', 'created_by', 'title', 'slug', 'visibility', 'sort_order', 'is_archived', 'meta'])]
+#[Fillable(['book_id', 'parent_id', 'created_by', 'editing_by', 'editing_started_at', 'title', 'slug', 'visibility', 'sort_order', 'is_archived', 'meta'])]
 class BookPage extends DomainModel
 {
     use HasEntityLinks, SoftDeletes;
@@ -38,8 +38,18 @@ class BookPage extends DomainModel
         return $this->belongsTo(User::class, 'created_by');
     }
 
+    public function editor(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'editing_by');
+    }
+
+    public function versions(): HasMany
+    {
+        return $this->hasMany(BookPageVersion::class, 'page_id');
+    }
+
     protected function casts(): array
     {
-        return ['is_archived' => 'boolean', 'meta' => 'array'];
+        return ['is_archived' => 'boolean', 'editing_started_at' => 'datetime', 'meta' => 'array'];
     }
 }

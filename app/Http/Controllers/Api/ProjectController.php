@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\StoreProjectRequest;
+use App\Http\Requests\Api\UpdateProjectRequest;
 use App\Http\Resources\ProjectResource;
 use App\Models\Project;
 use App\Models\Scope;
@@ -37,5 +38,13 @@ class ProjectController extends Controller
         abort_unless($project->scope_id === $scope->id, 404);
 
         return new ProjectResource($project);
+    }
+
+    public function update(UpdateProjectRequest $request, Scope $scope, Project $project): ProjectResource
+    {
+        abort_unless($project->scope_id === $scope->id, 404);
+        $project->update($request->validated());
+
+        return new ProjectResource($project->fresh());
     }
 }

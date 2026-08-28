@@ -29,7 +29,7 @@ class FoundationSchemaTest extends TestCase
             'scopes', 'scope_members', 'projects', 'tasks', 'facts', 'book_spaces', 'books',
             'book_pages', 'book_block_groups', 'book_blocks', 'event_types', 'event_sections',
             'events', 'responsibility_areas', 'compensation_periods', 'entity_links', 'tags',
-            'taggables', 'comments', 'activity_logs',
+            'taggables', 'comments', 'activity_logs', 'task_key_aliases', 'task_checklist_items',
         ];
 
         foreach ($tables as $table) {

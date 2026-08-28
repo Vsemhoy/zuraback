@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-#[Fillable(['scope_id', 'space_id', 'created_by', 'title', 'slug', 'description', 'structure_mode', 'visibility', 'cover_color', 'cover_svg_url', 'cover_svg_text', 'export_settings', 'sort_order', 'is_archived', 'meta'])]
+#[Fillable(['scope_id', 'space_id', 'created_by', 'title', 'slug', 'description', 'structure_mode', 'version_depth', 'visibility', 'cover_color', 'cover_svg_url', 'cover_svg_text', 'export_settings', 'sort_order', 'is_archived', 'meta'])]
 class Book extends DomainModel
 {
     use HasEntityLinks, SoftDeletes;

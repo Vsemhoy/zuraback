@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-#[Fillable(['owner_id', 'name', 'slug', 'color', 'icon', 'default_module', 'pin_hash', 'auto_lock_minutes', 'is_private', 'is_active', 'settings'])]
+#[Fillable(['owner_id', 'name', 'slug', 'task_prefix', 'next_task_number', 'color', 'icon', 'default_module', 'pin_hash', 'auto_lock_minutes', 'is_private', 'is_active', 'settings'])]
 class Scope extends DomainModel
 {
     use SoftDeletes;
@@ -40,6 +40,11 @@ class Scope extends DomainModel
     public function books(): HasMany
     {
         return $this->hasMany(Book::class);
+    }
+
+    public function bookSpaces(): HasMany
+    {
+        return $this->hasMany(BookSpace::class);
     }
 
     public function eventTypes(): HasMany

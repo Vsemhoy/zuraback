@@ -27,6 +27,10 @@ class StoreFactRequest extends WorkspaceRequest
             'kind' => ['sometimes', 'string', 'max:32'],
             'display_mode' => ['sometimes', 'string', 'max:24'],
             'is_sensitive' => ['sometimes', 'boolean'],
+            'is_expert' => ['sometimes', 'boolean'],
+            'is_pinned' => ['sometimes', 'boolean'],
+            'valid_from' => ['nullable', 'date'],
+            'valid_to' => ['nullable', 'date', 'after_or_equal:valid_from'],
         ];
     }
 }
