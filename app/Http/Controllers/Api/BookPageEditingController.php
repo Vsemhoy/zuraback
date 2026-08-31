@@ -7,6 +7,7 @@ use App\Http\Resources\BookPageResource;
 use App\Models\Book;
 use App\Models\BookPage;
 use App\Models\BookBlockGroup;
+use App\Models\BookPageVersion;
 use App\Models\Scope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -112,6 +113,33 @@ class BookPageEditingController extends Controller
         });
 
         return new BookPageResource($bookPage->fresh()->load(['editor:id,name,username', 'groups.masterBlock'])->loadCount('versions'));
+    }
+
+    public function versions(Scope $scope, Book $book, BookPage $bookPage): JsonResponse
+    {
+        $this->assertPageInScope($scope, $book, $bookPage);
+        $versions = $bookPage->versions()->with('creator:id,name,username')->latest('version_number')->get()
+            ->map(fn (BookPageVersion $version) => [
+                'id' => $version->id,
+                'version_number' => $version->version_number,
+                'created_at' => $version->created_at,
+                'creator' => $version->creator,
+            ]);
+
+        return response()->json(['data' => $versions]);
+    }
+
+    public function version(Scope $scope, Book $book, BookPage $bookPage, BookPageVersion $version): JsonResponse
+    {
+        $this->assertPageInScope($scope, $book, $bookPage);
+        abort_unless($version->page_id === $bookPage->id, 404);
+
+        return response()->json(['data' => [
+            'id' => $version->id,
+            'version_number' => $version->version_number,
+            'created_at' => $version->created_at,
+            'snapshot' => $version->snapshot,
+        ]]);
     }
 
     private function snapshot(BookPage $page): array

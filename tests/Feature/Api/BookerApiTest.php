@@ -10,6 +10,10 @@ class BookerApiTest extends TestCase {
   $page=$this->withHeaders(self::HEADERS)->postJson("/api/scopes/{$scope->id}/books/{$book['id']}/pages",['title'=>'1C recovery'])->assertCreated()->json('data');
   $this->withHeaders(self::HEADERS)->postJson("/api/scopes/{$scope->id}/books/{$book['id']}/pages/{$page['id']}/editing")
    ->assertOk()->assertJsonPath('data.editing_by',$user->id)->assertJsonPath('data.versions_count',1);
+  $versions=$this->withHeaders(self::HEADERS)->getJson("/api/scopes/{$scope->id}/books/{$book['id']}/pages/{$page['id']}/versions")
+   ->assertOk()->assertJsonCount(1,'data')->assertJsonMissingPath('data.0.snapshot')->json('data');
+  $this->withHeaders(self::HEADERS)->getJson("/api/scopes/{$scope->id}/books/{$book['id']}/pages/{$page['id']}/versions/{$versions[0]['id']}")
+   ->assertOk()->assertJsonPath('data.version_number',1)->assertJsonPath('data.snapshot.format','booker-page')->assertJsonPath('data.snapshot.page.title','1C recovery');
   $this->withHeaders(self::HEADERS)->patchJson("/api/scopes/{$scope->id}/books/{$book['id']}/pages/{$page['id']}",['title'=>'Changed during editing'])->assertOk();
   $group=$this->withHeaders(self::HEADERS)->postJson("/api/scopes/{$scope->id}/books/{$book['id']}/pages/{$page['id']}/blocks",['type'=>'markdown','content'=>'# Version one'])->assertCreated()->json('data');
   $divider=$this->withHeaders(self::HEADERS)->postJson("/api/scopes/{$scope->id}/books/{$book['id']}/pages/{$page['id']}/blocks",['type'=>'divider','sort_order'=>2])->assertCreated()->json('data');

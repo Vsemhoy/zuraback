@@ -81,6 +81,8 @@ Route::prefix('api')->middleware(['spa.request', 'auth', 'active'])->group(funct
             Route::post('/books/{book}/pages/{bookPage}/editing', [BookPageEditingController::class, 'acquire']);
             Route::delete('/books/{book}/pages/{bookPage}/editing', [BookPageEditingController::class, 'release']);
             Route::post('/books/{book}/pages/{bookPage}/editing/cancel', [BookPageEditingController::class, 'cancel']);
+            Route::get('/books/{book}/pages/{bookPage}/versions', [BookPageEditingController::class, 'versions']);
+            Route::get('/books/{book}/pages/{bookPage}/versions/{version}', [BookPageEditingController::class, 'version']);
             Route::get('/books/{book}/pages/{bookPage}/blocks', [BookBlockGroupController::class, 'index']);
             Route::post('/books/{book}/pages/{bookPage}/blocks', [BookBlockGroupController::class, 'store']);
             Route::post('/books/{book}/pages/{bookPage}/blocks/reorder', [BookBlockGroupController::class, 'reorder']);
