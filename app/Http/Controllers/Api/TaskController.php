@@ -8,6 +8,7 @@ use App\Http\Requests\Api\StoreTaskRequest;
 use App\Http\Requests\Api\UpdateTaskRequest;
 use App\Http\Resources\TaskResource;
 use App\Models\ActivityLog;
+use App\Models\Comment;
 use App\Models\EntityLink;
 use App\Models\Project;
 use App\Models\Scope;
@@ -16,7 +17,9 @@ use App\Models\User;
 use App\Services\ContractorAccessService;
 use App\Services\ContractorContext;
 use App\Services\TaskKeyService;
+use App\Services\TaskCompletionService;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
@@ -26,6 +29,7 @@ class TaskController extends Controller
     public function __construct(
         private readonly ContractorAccessService $access,
         private readonly ContractorContext $context,
+        private readonly TaskCompletionService $completion,
     ) {}
 
     /**
@@ -133,11 +137,7 @@ class TaskController extends Controller
             abort_if($task->children()->exists(), 422, 'A task with subtasks cannot become a subtask.');
         }
 
-        if (($data['status'] ?? null) === 'done' && $task->completed_at === null) {
-            $data['completed_at'] = now();
-        } elseif (isset($data['status']) && $data['status'] !== 'done') {
-            $data['completed_at'] = null;
-        }
+        $data = $this->completion->apply($task, $data, $this->context->actor($request));
 
         $before = $task->only(array_keys($data));
         $task->update($data);
@@ -163,7 +163,7 @@ class TaskController extends Controller
         abort_if($task->status === 'blocked' || $task->blockers()->whereNull('resolved_at')->exists(), 422, 'Resolve the active blocker before moving this task.');
         $targetStatus = $request->validated('status');
         $targetIndex = $request->integer('target_index');
-        $before = ['status' => $task->status, 'sort_order' => $task->sort_order];
+        $before = ['status' => $task->status, 'sort_order' => $task->sort_order, 'assignee_id' => $task->assignee_id];
 
         DB::transaction(function () use ($request, $scope, $task, $targetStatus, $targetIndex, $before): void {
             $sourceStatus = $task->status;
@@ -187,7 +187,7 @@ class TaskController extends Controller
                 $changes = ['sort_order' => ($index + 1) * 1000];
                 if ($item->id === $task->id) {
                     $changes['status'] = $targetStatus;
-                    $changes['completed_at'] = $targetStatus === 'done' ? ($task->completed_at ?? now()) : null;
+                    $changes = $this->completion->apply($task, $changes, $this->context->actor($request));
                 }
                 $item->update($changes);
             }
@@ -199,7 +199,7 @@ class TaskController extends Controller
                 'subject_id' => $task->id,
                 'action' => 'task.moved',
                 'before' => $before,
-                'after' => ['status' => $targetStatus, 'sort_order' => ($target->search(fn (Task $item) => $item->id === $task->id) + 1) * 1000],
+                'after' => ['status' => $targetStatus, 'sort_order' => ($target->search(fn (Task $item) => $item->id === $task->id) + 1) * 1000, 'assignee_id' => $task->fresh()->assignee_id],
                 'context' => ['target_index' => $targetIndex, ...$this->context->auditMetadata($request)],
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
@@ -244,27 +244,70 @@ class TaskController extends Controller
         abort_unless($this->access->allows($actor, $scope, 'task.delete', $project), 403, 'The task.delete capability is required.');
 
         DB::transaction(function () use ($request, $scope, $task): void {
-            $task->children()->update(['parent_id' => null]);
-            $task->plannerTails()->delete();
-            EntityLink::query()->where(function ($query) use ($task): void {
-                $query->where(fn ($side) => $side->where('source_type', $task->getMorphClass())->where('source_id', $task->id))
-                    ->orWhere(fn ($side) => $side->where('target_type', $task->getMorphClass())->where('target_id', $task->id));
-            })->delete();
-            $task->delete();
+            $before = $task->only(['task_key', 'title', 'project_id', 'assignee_id', 'status']);
+            $physical = $task->status === 'cancelled';
+            if ($physical) {
+                $this->forceDeleteTask($task);
+            } else {
+                $task->update(['status' => 'cancelled', 'completed_at' => null]);
+            }
             ActivityLog::query()->create([
                 'scope_id' => $scope->id,
                 'actor_id' => $this->context->actor($request)->id,
                 'subject_type' => $task->getMorphClass(),
                 'subject_id' => $task->id,
-                'action' => 'task.deleted',
-                'before' => $task->only(['task_key', 'title', 'project_id', 'assignee_id', 'status']),
-                'context' => ['soft_deleted' => true, ...$this->context->auditMetadata($request)],
+                'action' => $physical ? 'task.deleted' : 'task.trashed',
+                'before' => $before,
+                'after' => $physical ? null : ['status' => 'cancelled'],
+                'context' => ['physical' => $physical, ...$this->context->auditMetadata($request)],
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
             ]);
         });
 
         return response()->noContent();
+    }
+
+    public function purgeTrash(Request $request, Scope $scope): JsonResponse
+    {
+        $actor = $this->context->actor($request);
+        $tasks = $this->access->constrainTasks(
+            Task::query()->where('scope_id', $scope->id)->where('status', 'cancelled'),
+            $actor,
+            $scope,
+        )->with('project')->get()->filter(fn (Task $task): bool => $this->access->allows($actor, $scope, 'task.delete', $task->project));
+
+        DB::transaction(function () use ($request, $scope, $tasks): void {
+            foreach ($tasks as $task) {
+                $before = $task->only(['task_key', 'title', 'project_id', 'assignee_id', 'status']);
+                $this->forceDeleteTask($task);
+                ActivityLog::query()->create([
+                    'scope_id' => $scope->id,
+                    'actor_id' => $this->context->actor($request)->id,
+                    'subject_type' => $task->getMorphClass(),
+                    'subject_id' => $task->id,
+                    'action' => 'task.deleted',
+                    'before' => $before,
+                    'context' => ['physical' => true, 'trash_purge' => true, ...$this->context->auditMetadata($request)],
+                    'ip_address' => $request->ip(),
+                    'user_agent' => $request->userAgent(),
+                ]);
+            }
+        });
+
+        return response()->json(['data' => ['deleted_count' => $tasks->count()]]);
+    }
+
+    private function forceDeleteTask(Task $task): void
+    {
+        $task->children()->update(['parent_id' => null]);
+        $task->plannerTails()->delete();
+        Comment::query()->where('commentable_type', $task->getMorphClass())->where('commentable_id', $task->id)->delete();
+        EntityLink::query()->where(function ($query) use ($task): void {
+            $query->where(fn ($side) => $side->where('source_type', $task->getMorphClass())->where('source_id', $task->id))
+                ->orWhere(fn ($side) => $side->where('target_type', $task->getMorphClass())->where('target_id', $task->id));
+        })->delete();
+        $task->forceDelete();
     }
 
     /** @param array<string, mixed> $data */

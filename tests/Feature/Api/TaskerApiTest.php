@@ -202,6 +202,27 @@ class TaskerApiTest extends TestCase
         $this->assertDatabaseHas('activity_logs', ['subject_id' => $task['id'], 'action' => 'task.moved']);
     }
 
+    public function test_completing_an_unassigned_task_automatically_assigns_the_actor(): void
+    {
+        [$user, $scope] = $this->workspace();
+        $updated = $this->actingAs($user)->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/tasks", ['title' => 'Complete from editor'])
+            ->assertCreated()->json('data');
+        $dragged = $this->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/tasks", ['title' => 'Complete by drag'])
+            ->assertCreated()->json('data');
+
+        $this->withHeaders(self::HEADERS)
+            ->patchJson("/api/scopes/{$scope->id}/tasks/{$updated['id']}", ['status' => 'done'])
+            ->assertOk()->assertJsonPath('data.assignee.id', $user->id);
+        $this->withHeaders(self::HEADERS)
+            ->patchJson("/api/scopes/{$scope->id}/tasks/{$dragged['id']}/move", ['status' => 'done', 'target_index' => 0])
+            ->assertOk()->assertJsonPath('data.assignee.id', $user->id);
+
+        $this->assertDatabaseHas('tasks', ['id' => $updated['id'], 'status' => 'done', 'assignee_id' => $user->id]);
+        $this->assertDatabaseHas('tasks', ['id' => $dragged['id'], 'status' => 'done', 'assignee_id' => $user->id]);
+    }
+
     public function test_checklist_item_can_be_converted_and_subtask_can_be_detached(): void
     {
         [$user, $scope] = $this->workspace();

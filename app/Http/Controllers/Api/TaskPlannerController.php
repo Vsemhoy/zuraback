@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Services\ContractorAccessService;
 use App\Services\ContractorContext;
 use App\Services\TaskKeyService;
+use App\Services\TaskCompletionService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -27,6 +28,7 @@ class TaskPlannerController extends Controller
     public function __construct(
         private readonly ContractorAccessService $access,
         private readonly ContractorContext $context,
+        private readonly TaskCompletionService $completion,
     ) {}
 
     public function index(Request $request, Scope $scope): JsonResponse
@@ -193,11 +195,7 @@ class TaskPlannerController extends Controller
                     abort_if($targetProject === null && ! $this->access->canAccessUnprojected($assignee, $scope), 422, 'The assignee cannot access an unprojected task.');
                     abort_unless($this->access->allows($assignee, $scope, 'task.view', $targetProject), 422, 'The assignee cannot access the target project.');
                 }
-                if (($changes['status'] ?? null) === 'done') {
-                    $changes['completed_at'] = now();
-                } elseif (array_key_exists('status', $changes)) {
-                    $changes['completed_at'] = null;
-                }
+                $changes = $this->completion->apply($task, $changes, $actor);
                 $task->update($changes);
                 if (! empty($data['checklist_item'])) {
                     $task->checklistItems()->create(['created_by' => $actor->id, 'title' => $data['checklist_item'], 'sort_order' => ((int) $task->checklistItems()->max('sort_order')) + 1000]);

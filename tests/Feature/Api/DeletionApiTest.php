@@ -35,9 +35,19 @@ class DeletionApiTest extends TestCase
         $child = $this->task($scope, $owner, ['task_key' => 'TSK-3', 'parent_id' => $task->id]);
         TaskPlannerTail::query()->create(['scope_id' => $scope->id, 'task_id' => $task->id, 'created_by' => $owner->id, 'planned_on' => now()->addDay()]);
         $this->withHeaders(self::HEADERS)->deleteJson("/api/scopes/{$scope->id}/tasks/{$task->id}")->assertNoContent();
-        $this->assertSoftDeleted('tasks', ['id' => $task->id]);
+        $this->assertDatabaseHas('tasks', ['id' => $task->id, 'status' => 'cancelled', 'deleted_at' => null]);
+        $this->assertDatabaseHas('tasks', ['id' => $child->id, 'parent_id' => $task->id]);
+        $this->withHeaders(self::HEADERS)->deleteJson("/api/scopes/{$scope->id}/tasks/{$task->id}")->assertNoContent();
+        $this->assertDatabaseMissing('tasks', ['id' => $task->id]);
         $this->assertDatabaseHas('tasks', ['id' => $child->id, 'parent_id' => null]);
         $this->assertDatabaseMissing('task_planner_tails', ['task_id' => $task->id]);
+
+        $trashOne = $this->task($scope, $owner, ['task_key' => 'TSK-20', 'status' => 'cancelled']);
+        $trashTwo = $this->task($scope, $owner, ['task_key' => 'TSK-21', 'status' => 'cancelled']);
+        $this->withHeaders(self::HEADERS)->deleteJson("/api/scopes/{$scope->id}/tasks/trash")
+            ->assertOk()->assertJsonPath('data.deleted_count', 2);
+        $this->assertDatabaseMissing('tasks', ['id' => $trashOne->id]);
+        $this->assertDatabaseMissing('tasks', ['id' => $trashTwo->id]);
 
         $book = $scope->books()->create(['created_by' => $owner->id, 'title' => 'Disposable book', 'slug' => 'disposable-book']);
         $page = $book->pages()->create(['created_by' => $owner->id, 'title' => 'Page', 'slug' => 'page']);

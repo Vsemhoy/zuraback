@@ -77,6 +77,7 @@ Route::prefix('api')->middleware(['spa.request', 'auth', 'active'])->group(funct
         Route::patch('/planner/tasks/bulk', [TaskPlannerController::class, 'bulk'])->middleware(['scope.actor', 'scope.ability:task.update']);
         Route::post('/tasks', [TaskController::class, 'store'])->middleware(['scope.actor', 'scope.ability:task.create']);
         Route::get('/tasks/search', [TaskController::class, 'search'])->middleware(['scope.actor', 'scope.ability:task.view']);
+        Route::delete('/tasks/trash', [TaskController::class, 'purgeTrash'])->middleware(['scope.actor', 'scope.ability:task.delete']);
         Route::get('/tasks/{task}', [TaskController::class, 'show'])->middleware(['scope.actor', 'scope.ability:task.view']);
         Route::patch('/tasks/{task}', [TaskController::class, 'update'])->middleware(['scope.actor', 'scope.ability:task.update']);
         Route::delete('/tasks/{task}', [TaskController::class, 'destroy'])->middleware(['scope.actor', 'scope.ability:task.delete']);
