@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\BookPageController;
 use App\Http\Controllers\Api\BookPageEditingController;
 use App\Http\Controllers\Api\BookSpaceController;
 use App\Http\Controllers\Api\ContractorController;
+use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\EntityLinkController;
 use App\Http\Controllers\Api\EventController;
 use App\Http\Controllers\Api\EventSectionController;
@@ -42,6 +43,7 @@ Route::prefix('api')->middleware(['spa.request', 'auth', 'active'])->group(funct
 
     Route::prefix('/scopes/{scope}')->middleware('scope.member')->group(function (): void {
         Route::get('/', [ScopeController::class, 'show']);
+        Route::get('/dashboard', [DashboardController::class, 'show'])->middleware(['scope.actor', 'scope.ability:task.view']);
         Route::get('/contractors/options', [ContractorController::class, 'options']);
         Route::get('/contractors/assignable', [ContractorController::class, 'assignable'])->middleware('scope.ability:task.view');
         Route::get('/contractors', [ContractorController::class, 'index']);
