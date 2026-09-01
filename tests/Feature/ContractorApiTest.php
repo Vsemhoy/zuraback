@@ -96,6 +96,30 @@ class ContractorApiTest extends TestCase
         $this->withToken($issued['token'])->getJson('/api/agent/me')->assertUnauthorized();
     }
 
+    public function test_agent_can_fetch_the_current_markdown_specification_without_exposing_its_token(): void
+    {
+        [$owner, $scope] = $this->workspace();
+        $agent = User::factory()->agent()->create(['name' => 'Instruction Agent']);
+        $scope->members()->create([
+            'user_id' => $agent->id,
+            'role' => 'observer',
+            'permissions' => ['allow' => ['task.view'], 'deny' => []],
+            'project_access_mode' => 'none',
+            'joined_at' => now(),
+        ]);
+        $token = $agent->createToken('Instruction test', ['task.view'])->plainTextToken;
+
+        $response = $this->withToken($token)->get('/api/agent/spec');
+
+        $response->assertOk()
+            ->assertHeader('Content-Type', 'text/markdown; charset=UTF-8')
+            ->assertSee('# Zuratax Agent API', false)
+            ->assertSee('/api/agent/tasks', false)
+            ->assertSee($scope->id, false)
+            ->assertDontSee($token, false);
+        $this->assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
+    }
+
     public function test_virtual_and_agent_accounts_cannot_use_the_web_login(): void
     {
         $virtual = User::factory()->virtual()->create(['email' => 'virtual@example.test', 'password' => 'secret-password']);

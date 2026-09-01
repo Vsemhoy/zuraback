@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AgentTaskController;
+use App\Http\Controllers\Api\AgentSpecificationController;
 use App\Http\Controllers\Api\ProjectController;
 use App\Http\Controllers\Api\ScopeController;
 use App\Http\Controllers\Api\TaskController;
@@ -14,6 +15,7 @@ Route::get('/user', function (Request $request) {
 })->middleware('auth:sanctum');
 
 Route::prefix('agent')->middleware(['auth:sanctum', 'active', 'agent'])->group(function (): void {
+    Route::get('/spec', [AgentSpecificationController::class, 'show']);
     Route::get('/me', fn (Request $request): UserResource => new UserResource($request->user()));
     Route::get('/tasks', [AgentTaskController::class, 'index']);
     Route::get('/scopes', [ScopeController::class, 'index']);

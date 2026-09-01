@@ -1,0 +1,98 @@
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use Illuminate\Http\Response;
+
+class AgentSpecificationController extends Controller
+{
+    public function show(Request $request): Response
+    {
+        $agent = $request->user();
+        $abilities = collect($agent->currentAccessToken()?->abilities ?? [])->sort()->values();
+        $memberships = $agent->scopeMemberships()
+            ->where('is_active', true)
+            ->with('scope:id,name,slug')
+            ->orderBy('scope_id')
+            ->get();
+
+        $scopeLines = $memberships->map(function ($membership): string {
+            $scope = $membership->scope;
+
+            return sprintf(
+                '- `%s` — %s; role `%s`; project access `%s`',
+                $scope->id,
+                $scope->name,
+                $membership->role,
+                $membership->project_access_mode,
+            );
+        });
+
+        $lines = [
+            '# Zuratax Agent API',
+            '',
+            'Specification version: 2026-09-02',
+            'Generated at: '.now()->toIso8601String(),
+            '',
+            '## Identity and access',
+            '',
+            "You are authenticated as **{$agent->name}** (`{$agent->id}`).",
+            'Token abilities: '.($abilities->isEmpty() ? '_none_' : $abilities->map(fn (string $ability): string => "`{$ability}`")->implode(', ')).'.',
+            '',
+            'Accessible scopes:',
+            ...($scopeLines->isEmpty() ? ['- _none_'] : $scopeLines->all()),
+            '',
+            '## Transport contract',
+            '',
+            '- Use HTTPS and send the token only as `Authorization: Bearer <token>`.',
+            '- Send `Accept: application/json` for API data and `Content-Type: application/json` for POST/PATCH requests.',
+            '- Never put the token in a URL, task text, comment, log, commit, or chat message.',
+            '- Treat `401` as an invalid/revoked token, `403` as a scope/capability boundary, and `422` as a validation error.',
+            '- Follow pagination links/meta where a collection is paginated.',
+            '- Use task keys such as `ADM-154` when talking to people; use entity IDs in API paths and payloads.',
+            '',
+            '## Discovery and work queue',
+            '',
+            '- `GET /api/agent/spec` — fetch this current specification before starting work.',
+            '- `GET /api/agent/me` — verify the account.',
+            '- `GET /api/agent/scopes` — list accessible scopes.',
+            '- `GET /api/agent/tasks` — personal delegated queue. Add `?include_closed=1` to include done and cancelled tasks.',
+            '',
+            'The personal queue only contains tasks explicitly delegated to this agent and marked as agent-delegatable. Do not infer access from a task mentioned elsewhere.',
+            '',
+            '## Scope task API',
+            '',
+            'Replace `{scope}` and `{task}` with IDs returned by the API:',
+            '',
+            '- `GET /api/agent/scopes/{scope}/projects`',
+            '- `GET /api/agent/scopes/{scope}/tasks`',
+            '- `POST /api/agent/scopes/{scope}/tasks`',
+            '- `GET /api/agent/scopes/{scope}/tasks/search`',
+            '- `GET /api/agent/scopes/{scope}/tasks/{task}`',
+            '- `PATCH /api/agent/scopes/{scope}/tasks/{task}`',
+            '- `GET /api/agent/scopes/{scope}/tasks/{task}/comments`',
+            '- `POST /api/agent/scopes/{scope}/tasks/{task}/comments`',
+            '- `GET /api/agent/scopes/{scope}/tasks/{task}/activity`',
+            '',
+            'Only call endpoints allowed by both the token abilities and the membership capabilities. Project restrictions remain in force inside a scope.',
+            '',
+            '## Operating rules',
+            '',
+            '1. Fetch this specification, verify `/api/agent/me`, then load `/api/agent/tasks`.',
+            '2. Read the task, its comments and activity before changing it.',
+            '3. Make the smallest necessary change and preserve user data.',
+            '4. Record meaningful progress or blockers in a task comment. Never claim completion without verification.',
+            '5. If access is missing, stop at the boundary and report the exact endpoint and status; do not attempt to bypass it.',
+            '6. Do not perform destructive actions unless the assigned task explicitly authorizes them.',
+            '',
+            'This endpoint is the source of truth. Fetch it again when a workflow or endpoint behaves differently from a cached instruction.',
+        ];
+
+        return response(implode("\n", $lines)."\n", 200, [
+            'Content-Type' => 'text/markdown; charset=UTF-8',
+            'Cache-Control' => 'no-store, private',
+        ]);
+    }
+}
