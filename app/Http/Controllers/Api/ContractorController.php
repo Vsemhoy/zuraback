@@ -40,7 +40,7 @@ class ContractorController extends Controller
         return ContractorResource::collection($contractors);
     }
 
-    public function options(): JsonResponse
+    public function options(Scope $scope): JsonResponse
     {
         return response()->json(['data' => [
             'abilities' => ContractorAccessService::ABILITIES,
@@ -160,6 +160,9 @@ class ContractorController extends Controller
     {
         $this->assertContractor($scope, $contractor);
         $data = $request->validated();
+        $isOwner = $scope->owner_id === $contractor->id;
+        abort_if($isOwner && $data['role'] !== 'owner', 422, 'The scope owner role cannot be changed.');
+        abort_if(! $isOwner && $data['role'] === 'owner', 422, 'The owner role is reserved for the scope owner.');
 
         DB::transaction(function () use ($contractor, $data, $request, $scope): void {
             $scope->members()->updateOrCreate(

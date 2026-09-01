@@ -105,6 +105,33 @@ class ContractorApiTest extends TestCase
         $this->withHeaders(self::HEADERS)->postJson('/api/auth/login', ['identity' => $agent->email, 'password' => 'secret-password'])->assertUnprocessable();
     }
 
+    public function test_owner_access_can_be_saved_and_reserved_routes_do_not_bind_as_contractors(): void
+    {
+        [$owner, $scope] = $this->workspace();
+
+        $this->actingAs($owner)->withHeaders(self::HEADERS)
+            ->getJson("/api/scopes/{$scope->id}/contractors/options")
+            ->assertOk()
+            ->assertJsonFragment(['contractor.manage']);
+
+        $this->withHeaders(self::HEADERS)
+            ->putJson("/api/scopes/{$scope->id}/contractors/{$owner->id}/access", [
+                'role' => 'owner',
+                'project_access_mode' => 'all',
+                'project_ids' => [],
+                'permissions' => ['allow' => ['contractor.manage'], 'deny' => []],
+                'can_act_as' => false,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.role', 'owner');
+
+        $this->assertDatabaseHas('scope_members', [
+            'scope_id' => $scope->id,
+            'user_id' => $owner->id,
+            'role' => 'owner',
+        ]);
+    }
+
     /** @return array{User, Scope} */
     private function workspace(): array
     {

@@ -27,14 +27,14 @@ class UpdateContractorAccessRequest extends FormRequest
         $scopeId = $this->route('scope')->id;
 
         return [
-            'role' => ['required', Rule::in(['admin', 'member', 'observer'])],
+            'role' => ['required', Rule::in(['owner', 'admin', 'member', 'observer'])],
             'project_access_mode' => ['required', Rule::in(['all', 'restricted', 'none'])],
-            'project_ids' => ['required', 'array'],
+            'project_ids' => ['present', 'array'],
             'project_ids.*' => ['ulid', 'distinct', Rule::exists('projects', 'id')->where('scope_id', $scopeId)],
             'permissions' => ['required', 'array:allow,deny'],
-            'permissions.allow' => ['required', 'array'],
+            'permissions.allow' => ['present', 'array'],
             'permissions.allow.*' => ['string', 'distinct', Rule::in(ContractorAccessService::ABILITIES)],
-            'permissions.deny' => ['required', 'array'],
+            'permissions.deny' => ['present', 'array'],
             'permissions.deny.*' => ['string', 'distinct', Rule::in(ContractorAccessService::ABILITIES)],
             'can_act_as' => ['sometimes', 'boolean'],
         ];

@@ -44,12 +44,12 @@ Route::prefix('api')->middleware(['spa.request', 'auth', 'active'])->group(funct
         Route::get('/contractors/assignable', [ContractorController::class, 'assignable'])->middleware('scope.ability:task.view');
         Route::get('/contractors', [ContractorController::class, 'index'])->middleware('scope.ability:contractor.manage');
         Route::post('/contractors', [ContractorController::class, 'store'])->middleware('scope.ability:contractor.manage');
-        Route::get('/contractors/{contractor}', [ContractorController::class, 'show'])->middleware('scope.ability:contractor.manage');
-        Route::patch('/contractors/{contractor}', [ContractorController::class, 'update'])->middleware('scope.ability:contractor.manage');
-        Route::put('/contractors/{contractor}/access', [ContractorController::class, 'updateAccess'])->middleware('scope.ability:contractor.manage');
-        Route::post('/contractors/{contractor}/tokens', [ContractorController::class, 'storeToken'])->middleware('scope.ability:contractor.manage');
-        Route::delete('/contractors/{contractor}/tokens/{token}', [ContractorController::class, 'destroyToken'])->middleware('scope.ability:contractor.manage');
-        Route::post('/contractors/{contractor}/act', [ContractorController::class, 'act'])->middleware('scope.ability:contractor.manage');
+        Route::get('/contractors/{contractor}', [ContractorController::class, 'show'])->whereUlid('contractor')->middleware('scope.ability:contractor.manage');
+        Route::patch('/contractors/{contractor}', [ContractorController::class, 'update'])->whereUlid('contractor')->middleware('scope.ability:contractor.manage');
+        Route::put('/contractors/{contractor}/access', [ContractorController::class, 'updateAccess'])->whereUlid('contractor')->middleware('scope.ability:contractor.manage');
+        Route::post('/contractors/{contractor}/tokens', [ContractorController::class, 'storeToken'])->whereUlid('contractor')->middleware('scope.ability:contractor.manage');
+        Route::delete('/contractors/{contractor}/tokens/{token}', [ContractorController::class, 'destroyToken'])->whereUlid('contractor')->middleware('scope.ability:contractor.manage');
+        Route::post('/contractors/{contractor}/act', [ContractorController::class, 'act'])->whereUlid('contractor')->middleware('scope.ability:contractor.manage');
         Route::get('/projects', [ProjectController::class, 'index'])->middleware(['scope.actor', 'scope.ability:task.view']);
         Route::post('/projects', [ProjectController::class, 'store']);
         Route::get('/projects/{project}', [ProjectController::class, 'show']);
