@@ -28,6 +28,7 @@ class UpdateContractorRequest extends FormRequest
 
         return [
             'name' => ['sometimes', 'string', 'max:255'],
+            'position' => ['sometimes', 'nullable', 'string', 'max:255'],
             'type' => ['sometimes', Rule::in(User::TYPES)],
             'status' => ['sometimes', Rule::in(User::STATUSES)],
             'username' => ['sometimes', 'nullable', 'string', 'max:255', 'alpha_dash', Rule::unique('users', 'username')->ignore($contractor)],

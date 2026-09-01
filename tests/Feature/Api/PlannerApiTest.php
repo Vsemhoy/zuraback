@@ -44,5 +44,14 @@ class PlannerApiTest extends TestCase
 
         $this->withHeaders(self::HEADERS)->patchJson("/api/scopes/{$scope->id}/planner/tails/{$tail['id']}", ['planned_on' => '2026-09-08'])
             ->assertOk()->assertJsonPath('data.planned_on', '2026-09-08');
+        $this->withHeaders(self::HEADERS)->patchJson("/api/scopes/{$scope->id}/tasks/{$task['id']}", ['due_at' => '2026-09-03 12:00:00'])
+            ->assertOk();
+
+        $this->assertDatabaseHas('activity_logs', ['subject_id' => $task['id'], 'action' => 'task.planner_tail_created']);
+        $this->assertDatabaseHas('activity_logs', ['subject_id' => $task['id'], 'action' => 'task.planner_tail_moved']);
+        $this->assertDatabaseHas('activity_logs', ['subject_id' => $task['id'], 'action' => 'task.planner_copied']);
+        $this->assertDatabaseHas('activity_logs', ['subject_id' => $task['id'], 'action' => 'task.planner_bulk_updated']);
+        $this->assertDatabaseHas('activity_logs', ['subject_id' => $task['id'], 'action' => 'task.planner_rescheduled']);
+        $this->assertDatabaseHas('activity_logs', ['subject_id' => $copy['id'], 'action' => 'task.planner_created_from_copy']);
     }
 }

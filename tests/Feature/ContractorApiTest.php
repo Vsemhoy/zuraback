@@ -133,6 +133,24 @@ class ContractorApiTest extends TestCase
         ]);
     }
 
+    public function test_contractor_has_a_position_and_can_be_added_to_another_manageable_scope(): void
+    {
+        [$owner, $scope] = $this->workspace();
+        $second = Scope::query()->create(['owner_id' => $owner->id, 'name' => 'Personal', 'slug' => 'personal']);
+        $second->members()->create(['user_id' => $owner->id, 'role' => 'owner', 'joined_at' => now()]);
+
+        $contractor = $this->actingAs($owner)->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/contractors", [
+                'name' => 'Sergey Admin', 'position' => 'System administrator', 'type' => 'virtual',
+            ])->assertCreated()->assertJsonPath('data.position', 'System administrator')->json('data');
+
+        $this->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/contractors/{$contractor['id']}/scopes", ['scope_ids' => [$second->id]])
+            ->assertOk()->assertJsonFragment(['id' => $second->id, 'name' => 'Personal', 'role' => 'member']);
+
+        $this->assertDatabaseHas('scope_members', ['scope_id' => $second->id, 'user_id' => $contractor['id'], 'role' => 'member']);
+    }
+
     /** @return array{User, Scope} */
     private function workspace(): array
     {

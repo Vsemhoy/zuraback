@@ -14,11 +14,13 @@ class ContractorResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
-        $membership = $this->scopeMemberships->first();
+        $scopeId = $request->route('scope')?->id;
+        $membership = $this->scopeMemberships->firstWhere('scope_id', $scopeId);
 
         return [
             'id' => $this->id,
             'name' => $this->name,
+            'position' => $this->position,
             'type' => $this->type,
             'status' => $this->status,
             'username' => $this->username,
@@ -34,6 +36,9 @@ class ContractorResource extends JsonResource
                 'key' => $member->project->key,
                 'color' => $member->project->color,
             ])->values(),
+            'scopes' => $this->scopeMemberships->map(fn ($member): array => ['id' => $member->scope->id, 'name' => $member->scope->name, 'role' => $member->role])
+                ->concat($this->ownedScopes->map(fn ($owned): array => ['id' => $owned->id, 'name' => $owned->name, 'role' => 'owner']))
+                ->unique('id')->values(),
             'can_act_as' => $this->receivedDelegations->contains('is_active', true),
             'tokens' => $this->when($this->isAgent(), fn () => $this->tokens->map(fn ($token): array => [
                 'id' => $token->id,

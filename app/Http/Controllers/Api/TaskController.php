@@ -74,6 +74,17 @@ class TaskController extends Controller
 
             return $scope->tasks()->create([...$data, ...$identity, 'created_by' => $this->context->actor($request)->id]);
         });
+        ActivityLog::query()->create([
+            'scope_id' => $scope->id,
+            'actor_id' => $this->context->actor($request)->id,
+            'subject_type' => $task->getMorphClass(),
+            'subject_id' => $task->id,
+            'action' => 'task.created',
+            'after' => $task->only(['task_key', 'title', 'project_id', 'assignee_id', 'status', 'priority', 'due_at']),
+            'context' => $this->context->auditMetadata($request),
+            'ip_address' => $request->ip(),
+            'user_agent' => $request->userAgent(),
+        ]);
 
         return new TaskResource($task->load(['project:id,title,key,color', 'assignee:id,name,type', 'delegatedAgent:id,name,type']));
     }
@@ -127,7 +138,20 @@ class TaskController extends Controller
             $data['completed_at'] = null;
         }
 
+        $before = $task->only(array_keys($data));
         $task->update($data);
+        ActivityLog::query()->create([
+            'scope_id' => $scope->id,
+            'actor_id' => $this->context->actor($request)->id,
+            'subject_type' => $task->getMorphClass(),
+            'subject_id' => $task->id,
+            'action' => array_key_exists('due_at', $data) ? 'task.planner_rescheduled' : 'task.updated',
+            'before' => $before,
+            'after' => $task->fresh()->only(array_keys($data)),
+            'context' => $this->context->auditMetadata($request),
+            'ip_address' => $request->ip(),
+            'user_agent' => $request->userAgent(),
+        ]);
 
         return new TaskResource($task->fresh()->load(['project:id,title,key,color', 'assignee:id,name,type', 'delegatedAgent:id,name,type', 'checklistItems.assignee:id,name', 'checklistItems.completedBy:id,name', 'blockers.responsibleUser:id,name', 'blockers.blockedBy:id,name', 'blockers.resolvedBy:id,name', 'children:id,scope_id,project_id,parent_id,task_key,title,status,priority,due_at,assignee_id']));
     }

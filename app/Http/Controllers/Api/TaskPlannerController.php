@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\TaskResource;
+use App\Models\ActivityLog;
 use App\Models\EntityLink;
 use App\Models\Project;
 use App\Models\Scope;
@@ -73,6 +74,9 @@ class TaskPlannerController extends Controller
         $tail = TaskPlannerTail::query()->firstOrCreate([
             'scope_id' => $scope->id, 'task_id' => $task->id, 'planned_on' => $data['planned_on'],
         ], ['created_by' => $this->context->actor($request)->id]);
+        if ($tail->wasRecentlyCreated) {
+            $this->log($request, $scope, $task, 'task.planner_tail_created', null, ['tail_id' => $tail->id, 'planned_on' => $tail->planned_on->format('Y-m-d')]);
+        }
 
         return response()->json(['data' => ['id' => $tail->id, 'planned_on' => $tail->planned_on->format('Y-m-d'), 'task' => (new TaskResource($task->load(['project:id,title,key,color', 'assignee:id,name,type'])))->resolve($request)]], $tail->wasRecentlyCreated ? 201 : 200);
     }
@@ -80,8 +84,9 @@ class TaskPlannerController extends Controller
     public function moveTail(Request $request, Scope $scope, TaskPlannerTail $tail): JsonResponse
     {
         abort_unless($tail->scope_id === $scope->id, 404);
-        $this->accessibleTask($request, $scope, $tail->task_id);
+        $task = $this->accessibleTask($request, $scope, $tail->task_id);
         $data = $request->validate(['planned_on' => ['required', 'date_format:Y-m-d']]);
+        $before = ['tail_id' => $tail->id, 'planned_on' => $tail->planned_on->format('Y-m-d')];
         $origin = $tail->task()->value('due_at');
         abort_unless(CarbonImmutable::parse($data['planned_on'])->startOfDay()->greaterThan($origin ? CarbonImmutable::parse($origin)->startOfDay() : today()), 422, 'A task tail must point to a later planning day.');
         $duplicate = TaskPlannerTail::query()->where('task_id', $tail->task_id)->whereDate('planned_on', $data['planned_on'])->whereKeyNot($tail->id)->first();
@@ -91,6 +96,7 @@ class TaskPlannerController extends Controller
         } else {
             $tail->update($data);
         }
+        $this->log($request, $scope, $task, 'task.planner_tail_moved', $before, ['tail_id' => $tail->id, 'planned_on' => $tail->planned_on->format('Y-m-d')]);
 
         return response()->json(['data' => ['id' => $tail->id, 'planned_on' => $tail->planned_on->format('Y-m-d')]]);
     }
@@ -98,8 +104,10 @@ class TaskPlannerController extends Controller
     public function destroyTail(Request $request, Scope $scope, TaskPlannerTail $tail): JsonResponse
     {
         abort_unless($tail->scope_id === $scope->id, 404);
-        $this->accessibleTask($request, $scope, $tail->task_id);
+        $task = $this->accessibleTask($request, $scope, $tail->task_id);
+        $before = ['tail_id' => $tail->id, 'planned_on' => $tail->planned_on->format('Y-m-d')];
         $tail->delete();
+        $this->log($request, $scope, $task, 'task.planner_tail_deleted', $before, null);
 
         return response()->json(null, 204);
     }
@@ -135,6 +143,8 @@ class TaskPlannerController extends Controller
 
             return $copy;
         });
+        $this->log($request, $scope, $task, 'task.planner_copied', ['task_id' => $task->id, 'due_at' => $task->due_at], ['task_id' => $copy->id, 'task_key' => $copy->task_key, 'due_at' => $copy->due_at]);
+        $this->log($request, $scope, $copy, 'task.planner_created_from_copy', ['source_task_id' => $task->id, 'source_task_key' => $task->task_key], ['due_at' => $copy->due_at]);
 
         return response()->json(['data' => (new TaskResource($copy->load(['project:id,title,key,color', 'assignee:id,name,type'])))->resolve($request)], 201);
     }
@@ -174,9 +184,10 @@ class TaskPlannerController extends Controller
             $this->accessibleTask($request, $scope, $relationTarget->id);
         }
 
-        DB::transaction(function () use ($scope, $tasks, $data, $actor, $assignee, $relationTarget): void {
+        DB::transaction(function () use ($request, $scope, $tasks, $data, $actor, $assignee, $relationTarget): void {
             foreach ($tasks as $task) {
                 $changes = collect($data)->only(['project_id', 'assignee_id', 'status', 'priority', 'description'])->all();
+                $before = $task->only(array_keys($changes));
                 if ($assignee) {
                     $targetProject = array_key_exists('project_id', $changes) ? ($changes['project_id'] ? Project::query()->find($changes['project_id']) : null) : $task->project;
                     abort_if($targetProject === null && ! $this->access->canAccessUnprojected($assignee, $scope), 422, 'The assignee cannot access an unprojected task.');
@@ -204,6 +215,12 @@ class TaskPlannerController extends Controller
                         'target_type' => 'task', 'target_id' => $target->id, 'relation' => $relation,
                     ], ['created_by' => $actor->id]);
                 }
+                $this->log($request, $scope, $task, 'task.planner_bulk_updated', $before, [
+                    ...$task->fresh()->only(array_keys($changes)),
+                    'checklist_item' => $data['checklist_item'] ?? null,
+                    'relation_task_key' => $data['relation_task_key'] ?? null,
+                    'relation' => $data['relation'] ?? null,
+                ]);
             }
         });
 
@@ -230,5 +247,22 @@ class TaskPlannerController extends Controller
     private function accessibleTask(Request $request, Scope $scope, string $taskId): Task
     {
         return $this->access->constrainTasks(Task::query()->where('scope_id', $scope->id), $this->context->actor($request), $scope)->findOrFail($taskId);
+    }
+
+    /** @param array<string, mixed>|null $before @param array<string, mixed>|null $after */
+    private function log(Request $request, Scope $scope, Task $task, string $action, ?array $before, ?array $after): void
+    {
+        ActivityLog::query()->create([
+            'scope_id' => $scope->id,
+            'actor_id' => $this->context->actor($request)->id,
+            'subject_type' => $task->getMorphClass(),
+            'subject_id' => $task->id,
+            'action' => $action,
+            'before' => $before,
+            'after' => $after,
+            'context' => $this->context->auditMetadata($request),
+            'ip_address' => $request->ip(),
+            'user_agent' => $request->userAgent(),
+        ]);
     }
 }

@@ -40,12 +40,18 @@ class ContractorController extends Controller
         return ContractorResource::collection($contractors);
     }
 
-    public function options(Scope $scope): JsonResponse
+    public function options(Request $request, Scope $scope): JsonResponse
     {
+        $manageableScopes = Scope::query()
+            ->where('owner_id', $request->user()->id)
+            ->orWhereHas('members', fn ($query) => $query->where('user_id', $request->user()->id)->where('is_active', true))
+            ->get()->filter(fn (Scope $candidate): bool => app(ContractorAccessService::class)->allows($request->user(), $candidate, 'contractor.manage'));
+
         return response()->json(['data' => [
             'abilities' => ContractorAccessService::ABILITIES,
             'types' => User::TYPES,
             'statuses' => User::STATUSES,
+            'manageable_scopes' => $manageableScopes->map(fn (Scope $candidate): array => ['id' => $candidate->id, 'name' => $candidate->name])->values(),
         ]]);
     }
 
@@ -93,7 +99,7 @@ class ContractorController extends Controller
             $status = $data['status'] ?? 'active';
             $type = $data['type'];
             $contractor = User::query()->create([
-                ...Arr::only($data, ['name', 'type', 'username', 'email']),
+                ...Arr::only($data, ['name', 'position', 'type', 'username', 'email']),
                 'status' => $status,
                 'password' => $type === 'real' ? $data['password'] : null,
                 'created_by' => $request->user()->id,
@@ -182,6 +188,40 @@ class ContractorController extends Controller
         return new ContractorResource($contractor->fresh()->load($this->relations($scope, $request->user())));
     }
 
+    public function addScopes(Request $request, Scope $scope, User $contractor): ContractorResource
+    {
+        $this->assertContractor($scope, $contractor);
+        $data = $request->validate(['scope_ids' => ['required', 'array', 'min:1'], 'scope_ids.*' => ['ulid', 'distinct', 'exists:scopes,id']]);
+        $targets = Scope::query()->whereIn('id', $data['scope_ids'])->get();
+        abort_unless($targets->count() === count($data['scope_ids']), 422);
+        foreach ($targets as $target) {
+            abort_unless(app(ContractorAccessService::class)->allows($request->user(), $target, 'contractor.manage'), 403, 'One or more scopes cannot be managed by this user.');
+        }
+
+        DB::transaction(function () use ($contractor, $targets): void {
+            foreach ($targets as $target) {
+                if ($target->owner_id === $contractor->id) {
+                    continue;
+                }
+                $membership = $target->members()->where('user_id', $contractor->id)->first();
+                if ($membership) {
+                    $membership->update(['is_active' => true, 'joined_at' => $membership->joined_at ?? now()]);
+                } else {
+                    $target->members()->create([
+                        'user_id' => $contractor->id,
+                        'role' => 'member',
+                        'permissions' => ['allow' => [], 'deny' => []],
+                        'project_access_mode' => 'none',
+                        'is_active' => true,
+                        'joined_at' => now(),
+                    ]);
+                }
+            }
+        });
+
+        return new ContractorResource($contractor->fresh()->load($this->relations($scope, $request->user())));
+    }
+
     public function storeToken(StoreAgentTokenRequest $request, Scope $scope, User $contractor): JsonResponse
     {
         $this->assertContractor($scope, $contractor);
@@ -243,7 +283,8 @@ class ContractorController extends Controller
     private function relations(Scope $scope, User $operator): array
     {
         return [
-            'scopeMemberships' => fn ($query) => $query->where('scope_id', $scope->id),
+            'scopeMemberships' => fn ($query) => $query->where('is_active', true)->with('scope:id,name'),
+            'ownedScopes:id,owner_id,name',
             'projectMemberships' => fn ($query) => $query->whereHas('project', fn ($projects) => $projects->where('scope_id', $scope->id))->with('project:id,title,key,color'),
             'tokens' => fn ($query) => $query->latest(),
             'receivedDelegations' => fn ($query) => $query->where('scope_id', $scope->id)->where('operator_id', $operator->id),
