@@ -31,6 +31,7 @@ class ContractorResource extends JsonResource
             'permissions' => $membership?->permissions ?? ['allow' => ['*'], 'deny' => []],
             'project_access_mode' => $membership?->project_access_mode ?? 'all',
             'book_access_mode' => $membership?->book_access_mode ?? 'none',
+            'sort_order' => $membership?->sort_order ?? 0,
             'projects' => $this->projectMemberships->map(fn ($member): array => [
                 'id' => $member->project->id,
                 'title' => $member->project->title,

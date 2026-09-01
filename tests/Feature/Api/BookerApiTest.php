@@ -57,6 +57,24 @@ class BookerApiTest extends TestCase
             ->assertStatus(423);
     }
 
+    public function test_scope_shared_book_is_visible_without_weakening_explicit_access_boundaries(): void
+    {
+        $owner = User::factory()->create();
+        $colleague = User::factory()->create();
+        $scope = Scope::query()->create(['owner_id' => $owner->id, 'name' => 'Work', 'slug' => 'work']);
+        $scope->members()->create(['user_id' => $colleague->id, 'role' => 'member', 'project_access_mode' => 'all', 'book_access_mode' => 'projects', 'permissions' => ['allow' => ['book.view'], 'deny' => []], 'joined_at' => now()]);
+        $shared = $scope->books()->create(['created_by' => $owner->id, 'title' => 'Общая книга', 'visibility' => 'scope']);
+        $scope->books()->create(['created_by' => $owner->id, 'title' => 'Личная книга', 'visibility' => 'private']);
+
+        $this->actingAs($colleague)->withHeaders(self::HEADERS)->getJson("/api/scopes/{$scope->id}/books")
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $shared->id);
+
+        $scope->members()->where('user_id', $colleague->id)->update(['book_access_mode' => 'none']);
+        $this->withHeaders(self::HEADERS)->getJson("/api/scopes/{$scope->id}/books")->assertOk()->assertJsonCount(0, 'data');
+    }
+
     public function test_page_version_can_be_restored_and_the_previous_state_is_preserved(): void
     {
         $user = User::factory()->create();
@@ -72,6 +90,6 @@ class BookerApiTest extends TestCase
             ->assertOk()->assertJsonPath('data.title', 'Original')->assertJsonPath('data.editing_by', null)->assertJsonPath('data.versions_count', 2)->assertJsonCount(0, 'data.groups');
         $safetyVersionId = $this->withHeaders(self::HEADERS)->getJson("/api/scopes/{$scope->id}/books/{$book->id}/pages/{$page->id}/versions")->assertOk()->json('data.0.id');
         $this->withHeaders(self::HEADERS)->postJson("/api/scopes/{$scope->id}/books/{$book->id}/pages/{$page->id}/versions/{$safetyVersionId}/restore")
-            ->assertOk()->assertJsonPath('data.title', 'Changed')->assertJsonPath('data.groups.0.id',$group['id'])->assertJsonPath('data.groups.0.master_block.content','New content')->assertJsonPath('data.versions_count',3);
+            ->assertOk()->assertJsonPath('data.title', 'Changed')->assertJsonPath('data.groups.0.id', $group['id'])->assertJsonPath('data.groups.0.master_block.content', 'New content')->assertJsonPath('data.versions_count', 3);
     }
 }

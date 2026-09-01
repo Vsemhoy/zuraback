@@ -7,6 +7,7 @@ use App\Http\Requests\Api\StoreKpiRequest;
 use App\Http\Requests\Api\UpdateKpiRequest;
 use App\Models\Kpi;
 use App\Models\Scope;
+use App\Models\User;
 use App\Services\ContractorContext;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -49,6 +50,12 @@ class KpiController extends Controller
 
     public function stats(Request $request, Scope $scope): LaravelJsonResource
     {
+        $filters = $request->validate(['user_id' => ['nullable', 'ulid']]);
+        $userId = $filters['user_id'] ?? null;
+        if ($userId !== null) {
+            $belongsToScope = $scope->owner_id === $userId || $scope->members()->where('user_id', $userId)->where('is_active', true)->exists();
+            abort_unless($belongsToScope && User::query()->whereKey($userId)->whereIn('type', ['real', 'virtual'])->exists(), 422, 'The selected person is unavailable in this scope.');
+        }
         $month = CarbonImmutable::createFromFormat('!Y-m', (string) $request->input('month', now()->format('Y-m')));
         abort_if($month === false, 422, 'Month must use YYYY-MM format.');
         $start = $month->startOfMonth();
@@ -59,14 +66,22 @@ class KpiController extends Controller
             ->whereNotNull('assignee_id')
             ->whereNotNull('kpi_id')
             ->whereBetween('completed_at', [$start, $end])
-            ->get(['id', 'assignee_id', 'kpi_id']);
-        $counts = $tasks->groupBy(fn ($task) => $task->assignee_id.'|'.$task->kpi_id)->map->count();
+            ->when($userId, fn ($query) => $query->where('assignee_id', $userId))
+            ->with('project:id,title,key,color')
+            ->orderBy('completed_at')
+            ->get(['id', 'project_id', 'assignee_id', 'kpi_id', 'task_key', 'title', 'completed_at']);
+        $tasksByArea = $tasks->groupBy(fn ($task) => $task->assignee_id.'|'.$task->kpi_id);
         $targets = $this->targets($scope);
-        $people = $scope->members()->where('is_active', true)->with('user:id,name,position,type,status')->get()
-            ->filter(fn ($membership) => $membership->user && ! $membership->user->isAgent())
-            ->map(function ($membership) use ($areas, $counts, $targets): array {
-                $rows = $areas->map(function ($area) use ($counts, $membership): array {
-                    $completed = (int) ($counts[$membership->user_id.'|'.$area->id] ?? 0);
+        $people = User::query()
+            ->whereIn('type', ['real', 'virtual'])
+            ->where(fn ($query) => $query->whereKey($scope->owner_id)->orWhereHas('scopeMemberships', fn ($members) => $members->where('scope_id', $scope->id)->where('is_active', true)))
+            ->when($userId, fn ($query) => $query->whereKey($userId))
+            ->orderBy('name')
+            ->get(['id', 'name', 'position', 'type', 'status'])
+            ->map(function (User $person) use ($areas, $tasksByArea, $targets): array {
+                $rows = $areas->map(function ($area) use ($tasksByArea, $person): array {
+                    $completedTasks = $tasksByArea->get($person->id.'|'.$area->id, collect());
+                    $completed = $completedTasks->count();
                     $qualified = $completed >= $area->minimum_completed_tasks;
 
                     return [
@@ -78,13 +93,20 @@ class KpiController extends Controller
                         'completed_tasks' => $completed,
                         'qualified' => $qualified,
                         'awarded_points' => $qualified ? $area->points : 0,
+                        'tasks' => $completedTasks->map(fn ($task): array => [
+                            'id' => $task->id,
+                            'task_key' => $task->task_key,
+                            'title' => $task->title,
+                            'completed_at' => $task->completed_at,
+                            'project' => $task->project,
+                        ])->values(),
                     ];
-                });
+                })->filter(fn (array $row): bool => $row['completed_tasks'] > 0)->values();
                 $salaryPoints = (int) $rows->where('kind', 'salary')->sum('awarded_points');
                 $bonusPoints = (int) $rows->where('kind', 'bonus')->sum('awarded_points');
 
                 return [
-                    'user' => $membership->user,
+                    'user' => $person,
                     'salary_points' => $salaryPoints,
                     'salary_target' => $targets['salary_target_points'],
                     'salary_progress' => min(100, (int) round($salaryPoints / max(1, $targets['salary_target_points']) * 100)),

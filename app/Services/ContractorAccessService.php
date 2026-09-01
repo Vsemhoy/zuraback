@@ -180,6 +180,10 @@ class ContractorAccessService
             return false;
         }
 
+        if ($membership?->project_access_mode === 'all' && in_array($book->visibility, ['scope', 'public'], true)) {
+            return true;
+        }
+
         return $membership?->book_access_mode === 'all'
             || ($book->project_id !== null && $this->allows($user, $scope, 'task.view', $book->project));
     }
@@ -195,10 +199,14 @@ class ContractorAccessService
             return $query->whereRaw('1 = 0');
         }
         if ($membership->book_access_mode === 'projects') {
-            $query->whereNotNull('project_id');
-            if ($membership->project_access_mode === 'restricted') {
+            if ($membership->project_access_mode === 'all') {
+                $query->where(fn (Builder $books): Builder => $books
+                    ->whereNotNull('project_id')
+                    ->orWhereIn('visibility', ['scope', 'public']));
+            } elseif ($membership->project_access_mode === 'restricted') {
+                $query->whereNotNull('project_id');
                 $query->whereHas('project.members', fn (Builder $members): Builder => $members->where('user_id', $user->id)->where('is_active', true));
-            } elseif ($membership->project_access_mode === 'none') {
+            } else {
                 $query->whereRaw('1 = 0');
             }
 

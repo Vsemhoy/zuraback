@@ -46,7 +46,11 @@ class ContractorController extends Controller
             ->with($this->relations($scope, $request->user()))
             ->orderByRaw("CASE type WHEN 'real' THEN 1 WHEN 'virtual' THEN 2 ELSE 3 END")
             ->orderBy('name')
-            ->get();
+            ->get()
+            ->sortBy(fn (User $user): int => $user->id === $scope->owner_id
+                ? -1
+                : (int) ($user->scopeMemberships->firstWhere('scope_id', $scope->id)?->sort_order ?? 0))
+            ->values();
 
         return ContractorResource::collection($contractors);
     }
@@ -134,6 +138,7 @@ class ContractorController extends Controller
                 'permissions' => $data['permissions'] ?? ['allow' => [], 'deny' => []],
                 'project_access_mode' => $data['project_access_mode'] ?? 'all',
                 'book_access_mode' => $data['book_access_mode'] ?? 'none',
+                'sort_order' => $data['sort_order'] ?? (((int) $scope->members()->max('sort_order')) + 1000),
                 'joined_at' => now(),
             ]);
 
@@ -210,6 +215,7 @@ class ContractorController extends Controller
                     'permissions' => $data['permissions'],
                     'project_access_mode' => $data['project_access_mode'],
                     'book_access_mode' => $data['book_access_mode'] ?? $scope->members()->where('user_id', $contractor->id)->value('book_access_mode') ?? 'none',
+                    'sort_order' => $data['sort_order'] ?? $scope->members()->where('user_id', $contractor->id)->value('sort_order') ?? 0,
                     'is_active' => true,
                     'joined_at' => now(),
                 ],

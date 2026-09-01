@@ -30,6 +30,7 @@ class UpdateContractorAccessRequest extends FormRequest
             'role' => ['required', Rule::in(['owner', 'admin', 'member', 'observer'])],
             'project_access_mode' => ['required', Rule::in(['all', 'restricted', 'none'])],
             'book_access_mode' => ['sometimes', Rule::in(['all', 'projects', 'none'])],
+            'sort_order' => ['sometimes', 'integer', 'min:0'],
             'project_ids' => ['present', 'array'],
             'project_ids.*' => ['ulid', 'distinct', Rule::exists('projects', 'id')->where('scope_id', $scopeId)],
             'permissions' => ['required', 'array:allow,deny'],

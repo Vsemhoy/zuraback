@@ -50,7 +50,27 @@ class KpiApiTest extends TestCase
             ->assertJsonPath('data.people.0.user.id', $user->id)
             ->assertJsonPath('data.people.0.bonus_points', 55)
             ->assertJsonPath('data.people.0.payable_bonus_percent', 50)
-            ->assertJsonPath('data.people.0.areas.0.qualified', true);
+            ->assertJsonPath('data.people.0.areas.0.qualified', true)
+            ->assertJsonPath('data.people.0.areas.0.tasks.0.task_key', $task['task_key'])
+            ->assertJsonPath('data.people.0.areas.0.tasks.0.title', 'Выполнить KPI');
+    }
+
+    public function test_monthly_report_filters_a_person_and_hides_kpis_without_completed_tasks(): void
+    {
+        [$owner, $scope] = $this->workspace();
+        $colleague = User::factory()->create();
+        $scope->members()->create(['user_id' => $colleague->id, 'role' => 'member', 'joined_at' => now()]);
+        $doneKpi = $scope->kpis()->create(['created_by' => $owner->id, 'name' => 'Сделано', 'kind' => 'bonus', 'points' => 20, 'minimum_completed_tasks' => 1]);
+        $scope->kpis()->create(['created_by' => $owner->id, 'name' => 'Не сделано', 'kind' => 'bonus', 'points' => 30, 'minimum_completed_tasks' => 1]);
+        $task = $scope->tasks()->create(['created_by' => $owner->id, 'assignee_id' => $colleague->id, 'kpi_id' => $doneKpi->id, 'title' => 'Готовая работа', 'status' => 'done', 'completed_at' => now()]);
+
+        $this->actingAs($owner)->withHeaders(self::HEADERS)->getJson("/api/scopes/{$scope->id}/kpis/stats?month=".now()->format('Y-m')."&user_id={$colleague->id}")
+            ->assertOk()
+            ->assertJsonCount(1, 'data.people')
+            ->assertJsonPath('data.people.0.user.id', $colleague->id)
+            ->assertJsonCount(1, 'data.people.0.areas')
+            ->assertJsonPath('data.people.0.areas.0.id', $doneKpi->id)
+            ->assertJsonPath('data.people.0.areas.0.tasks.0.id', $task->id);
     }
 
     private function workspace(): array

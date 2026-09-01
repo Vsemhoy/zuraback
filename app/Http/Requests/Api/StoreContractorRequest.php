@@ -38,6 +38,7 @@ class StoreContractorRequest extends FormRequest
             'role' => ['sometimes', Rule::in(['admin', 'member', 'observer'])],
             'project_access_mode' => ['sometimes', Rule::in(['all', 'restricted', 'none'])],
             'book_access_mode' => ['sometimes', Rule::in(['all', 'projects', 'none'])],
+            'sort_order' => ['sometimes', 'integer', 'min:0'],
             'project_ids' => ['sometimes', 'array'],
             'project_ids.*' => ['ulid', 'distinct', Rule::exists('projects', 'id')->where('scope_id', $scopeId)],
             'permissions' => ['sometimes', 'array:allow,deny'],

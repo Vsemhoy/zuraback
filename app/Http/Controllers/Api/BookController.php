@@ -29,7 +29,7 @@ class BookController extends Controller
     {
         $books = $this->access->constrainBooks($scope->books()->getQuery(), $this->context->actor($request), $scope);
 
-        return BookResource::collection($books->with('project:id,title,key,color')->withCount('pages')->latest()->paginate());
+        return BookResource::collection($books->with('project:id,title,key,color')->withCount('pages')->orderBy('sort_order')->orderBy('title')->paginate());
     }
 
     /**
@@ -38,6 +38,7 @@ class BookController extends Controller
     public function store(StoreBookRequest $request, Scope $scope): BookResource
     {
         $data = $request->validated();
+        $data['sort_order'] ??= ((int) $scope->books()->max('sort_order')) + 1000;
         if (isset($data['space_id'])) {
             abort_unless($scope->bookSpaces()->whereKey($data['space_id'])->exists(), 422, 'Space belongs to another scope.');
         }
