@@ -105,6 +105,30 @@ class ContractorApiTest extends TestCase
         $this->withHeaders(self::HEADERS)->postJson('/api/auth/login', ['identity' => $agent->email, 'password' => 'secret-password'])->assertUnprocessable();
     }
 
+    public function test_virtual_contractor_can_be_activated_as_a_real_user_with_a_password(): void
+    {
+        [$owner, $scope] = $this->workspace();
+        $virtual = User::factory()->virtual()->create(['created_by' => $owner->id]);
+        $scope->members()->create(['user_id' => $virtual->id, 'role' => 'member', 'joined_at' => now()]);
+
+        $this->actingAs($owner)->withHeaders(self::HEADERS)
+            ->patchJson("/api/scopes/{$scope->id}/contractors/{$virtual->id}", [
+                'type' => 'real',
+                'email' => 'activated@example.test',
+                'password' => 'new-secret-password',
+            ])->assertOk()
+            ->assertJsonPath('data.type', 'real')
+            ->assertJsonPath('data.email', 'activated@example.test');
+
+        auth()->guard('web')->logout();
+        auth()->forgetGuards();
+
+        $this->withHeaders(self::HEADERS)->postJson('/api/auth/login', [
+            'identity' => 'activated@example.test',
+            'password' => 'new-secret-password',
+        ])->assertOk()->assertJsonPath('data.id', $virtual->id);
+    }
+
     public function test_owner_access_can_be_saved_and_reserved_routes_do_not_bind_as_contractors(): void
     {
         [$owner, $scope] = $this->workspace();
