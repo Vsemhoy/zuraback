@@ -12,6 +12,7 @@ use App\Models\Project;
 use App\Models\ResponsibilityArea;
 use App\Models\Task;
 use App\Models\TaskChecklistItem;
+use App\Models\User;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
@@ -48,6 +49,7 @@ class AppServiceProvider extends ServiceProvider
             'responsibility_area' => ResponsibilityArea::class,
             'task' => Task::class,
             'task_checklist_item' => TaskChecklistItem::class,
+            'user' => User::class,
         ]);
 
         RateLimiter::for('login', function (Request $request): Limit {

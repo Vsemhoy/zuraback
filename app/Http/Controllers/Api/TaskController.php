@@ -12,6 +12,9 @@ use App\Models\EntityLink;
 use App\Models\Project;
 use App\Models\Scope;
 use App\Models\Task;
+use App\Models\User;
+use App\Services\ContractorAccessService;
+use App\Services\ContractorContext;
 use App\Services\TaskKeyService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -19,12 +22,19 @@ use Illuminate\Support\Facades\DB;
 
 class TaskController extends Controller
 {
+    public function __construct(
+        private readonly ContractorAccessService $access,
+        private readonly ContractorContext $context,
+    ) {}
+
     /**
      * Display a listing of the resource.
      */
-    public function index(Scope $scope): AnonymousResourceCollection
+    public function index(Request $request, Scope $scope): AnonymousResourceCollection
     {
-        return TaskResource::collection($scope->tasks()->with(['project:id,title,key,color', 'assignee:id,name'])->orderBy('sort_order')->orderBy('created_at')->paginate());
+        $query = $this->access->constrainTasks($scope->tasks()->getQuery(), $this->context->actor($request), $scope);
+
+        return TaskResource::collection($query->with(['project:id,title,key,color', 'assignee:id,name,type', 'delegatedAgent:id,name,type'])->orderBy('sort_order')->orderBy('created_at')->paginate());
     }
 
     public function search(Request $request, Scope $scope): AnonymousResourceCollection
@@ -32,8 +42,10 @@ class TaskController extends Controller
         $query = trim((string) $request->query('q'));
         abort_if(mb_strlen($query) < 2, 422, 'Search query must contain at least two characters.');
 
-        return TaskResource::collection($scope->tasks()
-            ->with(['project:id,title,key,color', 'assignee:id,name'])
+        $tasks = $this->access->constrainTasks($scope->tasks()->getQuery(), $this->context->actor($request), $scope);
+
+        return TaskResource::collection($tasks
+            ->with(['project:id,title,key,color', 'assignee:id,name,type', 'delegatedAgent:id,name,type'])
             ->where(fn ($builder) => $builder->where('task_key', 'like', strtoupper($query).'%')->orWhere('title', 'like', '%'.$query.'%'))
             ->limit(20)->get());
     }
@@ -44,7 +56,12 @@ class TaskController extends Controller
     public function store(StoreTaskRequest $request, Scope $scope, TaskKeyService $keys): TaskResource
     {
         $data = $request->validated();
-        $this->assertReferencesBelongToScope($scope, $data);
+        $this->normalizeAgentDelegation($data);
+        $actor = $this->context->actor($request);
+        $this->assertReferencesBelongToScope($scope, $data, $actor);
+        abort_if(! isset($data['project_id']) && ! $this->access->canAccessUnprojected($actor, $scope), 403, 'Unprojected tasks are outside the contractor access boundary.');
+        $this->assertCanAssign($scope, $data, $actor);
+        $this->assertAssignedUsersCanAccess($scope, $data, $data['project_id'] ?? null);
         if (! empty($data['parent_id'])) {
             $parent = $scope->tasks()->findOrFail($data['parent_id']);
             abort_if($parent->parent_id !== null, 422, 'Only one level of true subtasks is supported.');
@@ -55,10 +72,10 @@ class TaskController extends Controller
             $project = isset($data['project_id']) ? Project::query()->findOrFail($data['project_id']) : null;
             $identity = $keys->reserve($scope, $project);
 
-            return $scope->tasks()->create([...$data, ...$identity, 'created_by' => $request->user()->id]);
+            return $scope->tasks()->create([...$data, ...$identity, 'created_by' => $this->context->actor($request)->id]);
         });
 
-        return new TaskResource($task->load(['project:id,title,key,color', 'assignee:id,name']));
+        return new TaskResource($task->load(['project:id,title,key,color', 'assignee:id,name,type', 'delegatedAgent:id,name,type']));
     }
 
     /**
@@ -68,14 +85,29 @@ class TaskController extends Controller
     {
         abort_unless($task->scope_id === $scope->id, 404);
 
-        return new TaskResource($task->load(['project:id,title,key,color', 'assignee:id,name', 'checklistItems.assignee:id,name', 'checklistItems.completedBy:id,name', 'blockers.responsibleUser:id,name', 'blockers.blockedBy:id,name', 'blockers.resolvedBy:id,name', 'children:id,scope_id,project_id,parent_id,task_key,title,status,priority,due_at,assignee_id']));
+        return new TaskResource($task->load(['project:id,title,key,color', 'assignee:id,name,type', 'delegatedAgent:id,name,type', 'checklistItems.assignee:id,name', 'checklistItems.completedBy:id,name', 'blockers.responsibleUser:id,name', 'blockers.blockedBy:id,name', 'blockers.resolvedBy:id,name', 'children:id,scope_id,project_id,parent_id,task_key,title,status,priority,due_at,assignee_id']));
     }
 
     public function update(UpdateTaskRequest $request, Scope $scope, Task $task): TaskResource
     {
         abort_unless($task->scope_id === $scope->id, 404);
         $data = $request->validated();
-        $this->assertReferencesBelongToScope($scope, $data);
+        $this->normalizeAgentDelegation($data);
+        $this->assertReferencesBelongToScope($scope, $data, $this->context->actor($request));
+        abort_if(array_key_exists('project_id', $data) && $data['project_id'] === null && ! $this->access->canAccessUnprojected($this->context->actor($request), $scope), 403, 'Unprojected tasks are outside the contractor access boundary.');
+        $fallbackProject = $task->project_id ? Project::query()->find($task->project_id) : null;
+        $this->assertCanAssign($scope, $data, $this->context->actor($request), $fallbackProject);
+        $targetProjectId = array_key_exists('project_id', $data) ? $data['project_id'] : $task->project_id;
+        $assignmentData = [
+            'assignee_id' => array_key_exists('assignee_id', $data) ? $data['assignee_id'] : $task->assignee_id,
+            'is_agent_delegatable' => array_key_exists('is_agent_delegatable', $data) ? $data['is_agent_delegatable'] : $task->is_agent_delegatable,
+            'delegated_agent_id' => array_key_exists('delegated_agent_id', $data) ? $data['delegated_agent_id'] : $task->delegated_agent_id,
+        ];
+        if (! $assignmentData['is_agent_delegatable']) {
+            $assignmentData['delegated_agent_id'] = null;
+            $data['delegated_agent_id'] = null;
+        }
+        $this->assertAssignedUsersCanAccess($scope, $assignmentData, $targetProjectId);
 
         if (isset($data['status'])) {
             abort_if($data['status'] === 'blocked' && $task->status !== 'blocked', 422, 'Use the blocker endpoint to block a task.');
@@ -97,7 +129,7 @@ class TaskController extends Controller
 
         $task->update($data);
 
-        return new TaskResource($task->fresh()->load(['project:id,title,key,color', 'assignee:id,name', 'checklistItems.assignee:id,name', 'checklistItems.completedBy:id,name', 'blockers.responsibleUser:id,name', 'blockers.blockedBy:id,name', 'blockers.resolvedBy:id,name', 'children:id,scope_id,project_id,parent_id,task_key,title,status,priority,due_at,assignee_id']));
+        return new TaskResource($task->fresh()->load(['project:id,title,key,color', 'assignee:id,name,type', 'delegatedAgent:id,name,type', 'checklistItems.assignee:id,name', 'checklistItems.completedBy:id,name', 'blockers.responsibleUser:id,name', 'blockers.blockedBy:id,name', 'blockers.resolvedBy:id,name', 'children:id,scope_id,project_id,parent_id,task_key,title,status,priority,due_at,assignee_id']));
     }
 
     public function move(MoveTaskRequest $request, Scope $scope, Task $task): TaskResource
@@ -110,7 +142,8 @@ class TaskController extends Controller
 
         DB::transaction(function () use ($request, $scope, $task, $targetStatus, $targetIndex, $before): void {
             $sourceStatus = $task->status;
-            $groups = Task::query()->where('scope_id', $scope->id)
+            $taskQuery = $this->access->constrainTasks(Task::query()->where('scope_id', $scope->id), $this->context->actor($request), $scope);
+            $groups = $taskQuery
                 ->whereIn('status', array_values(array_unique([$sourceStatus, $targetStatus])))
                 ->orderBy('id')->lockForUpdate()->get()->groupBy('status');
 
@@ -136,19 +169,19 @@ class TaskController extends Controller
 
             ActivityLog::query()->create([
                 'scope_id' => $scope->id,
-                'actor_id' => $request->user()->id,
+                'actor_id' => $this->context->actor($request)->id,
                 'subject_type' => $task->getMorphClass(),
                 'subject_id' => $task->id,
                 'action' => 'task.moved',
                 'before' => $before,
                 'after' => ['status' => $targetStatus, 'sort_order' => ($target->search(fn (Task $item) => $item->id === $task->id) + 1) * 1000],
-                'context' => ['target_index' => $targetIndex],
+                'context' => ['target_index' => $targetIndex, ...$this->context->auditMetadata($request)],
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
             ]);
         });
 
-        return new TaskResource($task->fresh()->load(['project:id,title,key,color', 'assignee:id,name']));
+        return new TaskResource($task->fresh()->load(['project:id,title,key,color', 'assignee:id,name,type', 'delegatedAgent:id,name,type']));
     }
 
     public function detach(Request $request, Scope $scope, Task $task): TaskResource
@@ -165,25 +198,79 @@ class TaskController extends Controller
             EntityLink::query()->firstOrCreate([
                 'scope_id' => $scope->id, 'source_type' => $lockedTask->getMorphClass(), 'source_id' => $sourceId,
                 'target_type' => $lockedTask->getMorphClass(), 'target_id' => $targetId, 'relation' => 'related',
-            ], ['created_by' => $request->user()->id, 'note' => 'Created when the subtask was extracted.']);
+            ], ['created_by' => $this->context->actor($request)->id, 'note' => 'Created when the subtask was extracted.']);
             ActivityLog::query()->create([
-                'scope_id' => $scope->id, 'actor_id' => $request->user()->id,
+                'scope_id' => $scope->id, 'actor_id' => $this->context->actor($request)->id,
                 'subject_type' => $lockedTask->getMorphClass(), 'subject_id' => $lockedTask->id,
                 'action' => 'task.detached', 'before' => ['parent_id' => $formerParentId], 'after' => ['parent_id' => null],
-                'context' => ['former_parent_id' => $formerParentId], 'ip_address' => $request->ip(), 'user_agent' => $request->userAgent(),
+                'context' => ['former_parent_id' => $formerParentId, ...$this->context->auditMetadata($request)], 'ip_address' => $request->ip(), 'user_agent' => $request->userAgent(),
             ]);
         });
 
-        return new TaskResource($task->fresh()->load(['project:id,title,key,color', 'assignee:id,name']));
+        return new TaskResource($task->fresh()->load(['project:id,title,key,color', 'assignee:id,name,type', 'delegatedAgent:id,name,type']));
     }
 
     /** @param array<string, mixed> $data */
-    private function assertReferencesBelongToScope(Scope $scope, array $data): void
+    private function assertReferencesBelongToScope(Scope $scope, array $data, User $actor): void
     {
         foreach (['project_id' => 'projects', 'parent_id' => 'tasks', 'responsibility_area_id' => 'responsibilityAreas'] as $key => $relation) {
             if (isset($data[$key])) {
                 abort_unless($scope->{$relation}()->whereKey($data[$key])->exists(), 422, "Invalid {$key} for this scope.");
             }
+        }
+
+        if (isset($data['project_id'])) {
+            $project = Project::query()->findOrFail($data['project_id']);
+            abort_unless($this->access->allows($actor, $scope, 'task.view', $project), 403, 'This project is outside the contractor access boundary.');
+        }
+
+        if (isset($data['parent_id'])) {
+            $parent = Task::query()->with('project')->findOrFail($data['parent_id']);
+            abort_unless($this->access->allows($actor, $scope, 'task.view', $parent->project), 403, 'The parent task is outside the contractor access boundary.');
+        }
+    }
+
+    /** @param array<string, mixed> $data */
+    private function assertCanAssign(Scope $scope, array $data, User $actor, ?Project $fallbackProject = null): void
+    {
+        if (! array_key_exists('assignee_id', $data) && ! array_key_exists('delegated_agent_id', $data) && ! array_key_exists('is_agent_delegatable', $data)) {
+            return;
+        }
+
+        $project = isset($data['project_id']) ? Project::query()->find($data['project_id']) : $fallbackProject;
+        abort_unless($this->access->allows($actor, $scope, 'task.assign', $project), 403, 'The task.assign capability is required.');
+    }
+
+    /** @param array<string, mixed> $data */
+    private function normalizeAgentDelegation(array &$data): void
+    {
+        if (! empty($data['delegated_agent_id'])) {
+            $data['is_agent_delegatable'] = true;
+        }
+
+        if (array_key_exists('is_agent_delegatable', $data) && ! $data['is_agent_delegatable']) {
+            $data['delegated_agent_id'] = null;
+        }
+    }
+
+    /** @param array<string, mixed> $data */
+    private function assertAssignedUsersCanAccess(Scope $scope, array $data, ?string $projectId): void
+    {
+        $project = $projectId ? Project::query()->findOrFail($projectId) : null;
+
+        if (! empty($data['assignee_id'])) {
+            $assignee = User::query()->whereKey($data['assignee_id'])->whereIn('type', ['real', 'virtual'])->where('status', 'active')->where('is_active', true)->first();
+            abort_unless($assignee !== null && ($scope->owner_id === $assignee->id || $scope->members()->where('user_id', $assignee->id)->where('is_active', true)->exists()), 422, 'The assignee must be an active real or virtual member of this scope.');
+            abort_if($project === null && ! $this->access->canAccessUnprojected($assignee, $scope), 422, 'The assignee cannot access unprojected tasks.');
+            abort_unless($this->access->allows($assignee, $scope, 'task.view', $project), 422, 'The assignee cannot access this project.');
+        }
+
+        if (! empty($data['delegated_agent_id'])) {
+            abort_unless($data['is_agent_delegatable'] ?? false, 422, 'Enable agent delegation before selecting an agent.');
+            $agent = User::query()->whereKey($data['delegated_agent_id'])->where('type', 'agent')->where('status', 'active')->where('is_active', true)->first();
+            abort_unless($agent !== null && $scope->members()->where('user_id', $agent->id)->where('is_active', true)->exists(), 422, 'The delegated agent must be an active member of this scope.');
+            abort_if($project === null && ! $this->access->canAccessUnprojected($agent, $scope), 422, 'The delegated agent cannot access unprojected tasks.');
+            abort_unless($this->access->allows($agent, $scope, 'task.view', $project), 422, 'The delegated agent cannot access this project.');
         }
     }
 }

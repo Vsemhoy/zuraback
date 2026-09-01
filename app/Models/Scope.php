@@ -22,6 +22,11 @@ class Scope extends DomainModel
         return $this->hasMany(ScopeMember::class);
     }
 
+    public function delegations(): HasMany
+    {
+        return $this->hasMany(ContractorDelegation::class);
+    }
+
     public function projects(): HasMany
     {
         return $this->hasMany(Project::class);

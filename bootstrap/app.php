@@ -1,8 +1,11 @@
 <?php
 
-use App\Http\Middleware\EnsureSpaRequestIsTrusted;
+use App\Http\Middleware\EnsureAgentAccount;
+use App\Http\Middleware\EnsureContractorAbility;
 use App\Http\Middleware\EnsureScopeMember;
+use App\Http\Middleware\EnsureSpaRequestIsTrusted;
 use App\Http\Middleware\EnsureUserIsActive;
+use App\Http\Middleware\ResolveContractorActor;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -20,6 +23,9 @@ return Application::configure(basePath: dirname(__DIR__))
             'active' => EnsureUserIsActive::class,
             'spa.request' => EnsureSpaRequestIsTrusted::class,
             'scope.member' => EnsureScopeMember::class,
+            'agent' => EnsureAgentAccount::class,
+            'scope.ability' => EnsureContractorAbility::class,
+            'scope.actor' => ResolveContractorActor::class,
         ]);
 
         $middleware->validateCsrfTokens(except: ['api/auth/*']);

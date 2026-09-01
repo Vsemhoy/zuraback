@@ -18,7 +18,13 @@ class SessionController extends Controller
         $identity = $request->string('identity')->toString();
         $field = filter_var($identity, FILTER_VALIDATE_EMAIL) ? 'email' : 'username';
 
-        if (! Auth::attempt([$field => $identity, 'password' => $request->string('password')->toString()], $request->boolean('remember'))) {
+        if (! Auth::attempt([
+            $field => $identity,
+            'password' => $request->string('password')->toString(),
+            'type' => 'real',
+            'status' => 'active',
+            'is_active' => true,
+        ], $request->boolean('remember'))) {
             throw ValidationException::withMessages(['identity' => __('auth.failed')]);
         }
 

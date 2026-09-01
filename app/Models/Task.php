@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-#[Fillable(['scope_id', 'project_id', 'parent_id', 'number', 'task_key', 'created_by', 'assignee_id', 'approved_by', 'responsibility_area_id', 'title', 'description', 'result', 'status', 'priority', 'due_at', 'completed_at', 'approved_at', 'tracked_seconds', 'is_pinned', 'sort_order', 'meta', 'counts_for_compensation'])]
+#[Fillable(['scope_id', 'project_id', 'parent_id', 'number', 'task_key', 'created_by', 'assignee_id', 'is_agent_delegatable', 'delegated_agent_id', 'approved_by', 'responsibility_area_id', 'title', 'description', 'result', 'status', 'priority', 'due_at', 'completed_at', 'approved_at', 'tracked_seconds', 'is_pinned', 'sort_order', 'meta', 'counts_for_compensation'])]
 class Task extends DomainModel
 {
     use HasEntityLinks, SoftDeletes;
@@ -58,6 +58,11 @@ class Task extends DomainModel
         return $this->belongsTo(User::class, 'assignee_id');
     }
 
+    public function delegatedAgent(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'delegated_agent_id');
+    }
+
     public function approver(): BelongsTo
     {
         return $this->belongsTo(User::class, 'approved_by');
@@ -70,6 +75,6 @@ class Task extends DomainModel
 
     protected function casts(): array
     {
-        return ['due_at' => 'datetime', 'completed_at' => 'datetime', 'approved_at' => 'datetime', 'is_pinned' => 'boolean', 'counts_for_compensation' => 'boolean', 'meta' => 'array'];
+        return ['due_at' => 'datetime', 'completed_at' => 'datetime', 'approved_at' => 'datetime', 'is_pinned' => 'boolean', 'is_agent_delegatable' => 'boolean', 'counts_for_compensation' => 'boolean', 'meta' => 'array'];
     }
 }

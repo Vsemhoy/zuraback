@@ -8,17 +8,27 @@ use App\Http\Requests\Api\UpdateProjectRequest;
 use App\Http\Resources\ProjectResource;
 use App\Models\Project;
 use App\Models\Scope;
+use App\Services\ContractorAccessService;
+use App\Services\ContractorContext;
+use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 class ProjectController extends Controller
 {
+    public function __construct(
+        private readonly ContractorAccessService $access,
+        private readonly ContractorContext $context,
+    ) {}
+
     /**
      * Display a listing of the resource.
      */
-    public function index(Scope $scope): AnonymousResourceCollection
+    public function index(Request $request, Scope $scope): AnonymousResourceCollection
     {
+        $query = $this->access->constrainProjects($scope->projects()->getQuery(), $this->context->actor($request), $scope);
+
         return ProjectResource::collection(
-            $scope->projects()->orderBy('sort_order')->orderBy('title')->get()
+            $query->orderBy('sort_order')->orderBy('title')->get()
         );
     }
 
@@ -29,7 +39,7 @@ class ProjectController extends Controller
     {
         $data = $request->validated();
         $data['sort_order'] ??= ((int) $scope->projects()->max('sort_order')) + 1;
-        $project = $scope->projects()->create([...$data, 'created_by' => $request->user()->id]);
+        $project = $scope->projects()->create([...$data, 'created_by' => $this->context->actor($request)->id]);
 
         return new ProjectResource($project);
     }

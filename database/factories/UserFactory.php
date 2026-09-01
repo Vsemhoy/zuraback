@@ -26,6 +26,8 @@ class UserFactory extends Factory
     {
         return [
             'name' => fake()->name(),
+            'type' => 'real',
+            'status' => 'active',
             'username' => fake()->unique()->userName(),
             'email' => fake()->unique()->safeEmail(),
             'email_verified_at' => now(),
@@ -41,6 +43,26 @@ class UserFactory extends Factory
     public function unverified(): static
     {
         return $this->state(fn (array $attributes) => [
+            'email_verified_at' => null,
+        ]);
+    }
+
+    public function virtual(): static
+    {
+        return $this->state(fn (array $attributes): array => [
+            'type' => 'virtual',
+            'email' => null,
+            'password' => null,
+            'email_verified_at' => null,
+        ]);
+    }
+
+    public function agent(): static
+    {
+        return $this->state(fn (array $attributes): array => [
+            'type' => 'agent',
+            'email' => null,
+            'password' => null,
             'email_verified_at' => null,
         ]);
     }

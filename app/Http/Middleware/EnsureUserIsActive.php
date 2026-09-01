@@ -15,9 +15,11 @@ class EnsureUserIsActive
      */
     public function handle(Request $request, Closure $next): Response
     {
-        if ($request->user() !== null && ! $request->user()->is_active) {
-            auth()->logout();
-            $request->session()->invalidate();
+        if ($request->user() !== null && (! $request->user()->is_active || $request->user()->status !== 'active')) {
+            if ($request->hasSession()) {
+                auth()->logout();
+                $request->session()->invalidate();
+            }
 
             abort(Response::HTTP_UNAUTHORIZED, 'This account is disabled.');
         }

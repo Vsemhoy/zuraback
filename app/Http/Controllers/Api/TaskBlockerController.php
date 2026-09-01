@@ -10,11 +10,15 @@ use App\Models\ActivityLog;
 use App\Models\Scope;
 use App\Models\Task;
 use App\Models\TaskBlocker;
+use App\Services\ContractorContext;
+use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
 
 class TaskBlockerController extends Controller
 {
+    public function __construct(private readonly ContractorContext $context) {}
+
     public function index(Scope $scope, Task $task): AnonymousResourceCollection
     {
         $this->assertTask($scope, $task);
@@ -38,7 +42,7 @@ class TaskBlockerController extends Controller
             $blocker = $lockedTask->blockers()->create([
                 ...$data,
                 'previous_status' => $lockedTask->status,
-                'blocked_by' => $request->user()->id,
+                'blocked_by' => $this->context->actor($request)->id,
                 'blocked_at' => now(),
             ]);
             $lockedTask->update(['status' => 'blocked']);
@@ -60,7 +64,7 @@ class TaskBlockerController extends Controller
             $before = $lockedBlocker->only(['id', 'resolved_at']);
 
             $lockedBlocker->update([
-                'resolved_by' => $request->user()->id,
+                'resolved_by' => $this->context->actor($request)->id,
                 'resolved_at' => now(),
                 'resolution_note' => $request->validated('resolution_note'),
             ]);
@@ -85,17 +89,17 @@ class TaskBlockerController extends Controller
         abort_unless($blocker->task_id === $task->id, 404);
     }
 
-    private function log($request, Task $task, string $action, ?array $before, array $after): void
+    private function log(Request $request, Task $task, string $action, ?array $before, array $after): void
     {
         ActivityLog::query()->create([
             'scope_id' => $task->scope_id,
-            'actor_id' => $request->user()->id,
+            'actor_id' => $this->context->actor($request)->id,
             'subject_type' => $task->getMorphClass(),
             'subject_id' => $task->id,
             'action' => $action,
             'before' => $before,
             'after' => $after,
-            'context' => ['blocker_id' => $after['id']],
+            'context' => ['blocker_id' => $after['id'], ...$this->context->auditMetadata($request)],
             'ip_address' => $request->ip(),
             'user_agent' => $request->userAgent(),
         ]);

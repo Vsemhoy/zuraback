@@ -37,6 +37,11 @@ class Project extends DomainModel
         return $this->hasMany(Task::class);
     }
 
+    public function members(): HasMany
+    {
+        return $this->hasMany(ProjectMember::class);
+    }
+
     protected function casts(): array
     {
         return ['started_on' => 'date', 'due_on' => 'date', 'completed_at' => 'datetime', 'is_pinned' => 'boolean', 'meta' => 'array'];
