@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\FactController;
 use App\Http\Controllers\Api\KpiController;
 use App\Http\Controllers\Api\ProjectController;
 use App\Http\Controllers\Api\ScopeController;
+use App\Http\Controllers\Api\SearchController;
 use App\Http\Controllers\Api\TaskBlockerController;
 use App\Http\Controllers\Api\TaskChecklistItemController;
 use App\Http\Controllers\Api\TaskController;
@@ -43,6 +44,7 @@ Route::prefix('api')->middleware(['spa.request', 'auth', 'active'])->group(funct
 
     Route::prefix('/scopes/{scope}')->middleware('scope.member')->group(function (): void {
         Route::get('/', [ScopeController::class, 'show']);
+        Route::get('/search', [SearchController::class, 'index'])->middleware('scope.actor');
         Route::get('/dashboard', [DashboardController::class, 'show'])->middleware(['scope.actor', 'scope.ability:task.view']);
         Route::get('/contractors/options', [ContractorController::class, 'options']);
         Route::get('/contractors/assignable', [ContractorController::class, 'assignable'])->middleware('scope.ability:task.view');
