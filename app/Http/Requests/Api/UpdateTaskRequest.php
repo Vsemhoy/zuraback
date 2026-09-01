@@ -13,6 +13,7 @@ class UpdateTaskRequest extends WorkspaceRequest
             'project_id' => ['sometimes', 'nullable', 'ulid'],
             'parent_id' => ['sometimes', 'nullable', 'ulid'],
             'assignee_id' => ['sometimes', 'nullable', 'ulid'],
+            'customer_id' => ['sometimes', 'nullable', 'ulid'],
             'is_agent_delegatable' => ['sometimes', 'boolean'],
             'delegated_agent_id' => ['sometimes', 'nullable', 'ulid'],
             'responsibility_area_id' => ['sometimes', 'nullable', 'ulid'],

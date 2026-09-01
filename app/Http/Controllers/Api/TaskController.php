@@ -34,7 +34,7 @@ class TaskController extends Controller
     {
         $query = $this->access->constrainTasks($scope->tasks()->getQuery(), $this->context->actor($request), $scope);
 
-        return TaskResource::collection($query->with(['project:id,title,key,color', 'assignee:id,name,type', 'delegatedAgent:id,name,type'])->orderBy('sort_order')->orderBy('created_at')->paginate());
+        return TaskResource::collection($query->with(['project:id,title,key,color', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type'])->orderBy('sort_order')->orderBy('created_at')->paginate());
     }
 
     public function search(Request $request, Scope $scope): AnonymousResourceCollection
@@ -45,7 +45,7 @@ class TaskController extends Controller
         $tasks = $this->access->constrainTasks($scope->tasks()->getQuery(), $this->context->actor($request), $scope);
 
         return TaskResource::collection($tasks
-            ->with(['project:id,title,key,color', 'assignee:id,name,type', 'delegatedAgent:id,name,type'])
+            ->with(['project:id,title,key,color', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type'])
             ->where(fn ($builder) => $builder->where('task_key', 'like', strtoupper($query).'%')->orWhere('title', 'like', '%'.$query.'%'))
             ->limit(20)->get());
     }
@@ -80,13 +80,13 @@ class TaskController extends Controller
             'subject_type' => $task->getMorphClass(),
             'subject_id' => $task->id,
             'action' => 'task.created',
-            'after' => $task->only(['task_key', 'title', 'project_id', 'assignee_id', 'status', 'priority', 'due_at']),
+            'after' => $task->only(['task_key', 'title', 'project_id', 'assignee_id', 'customer_id', 'status', 'priority', 'due_at']),
             'context' => $this->context->auditMetadata($request),
             'ip_address' => $request->ip(),
             'user_agent' => $request->userAgent(),
         ]);
 
-        return new TaskResource($task->load(['project:id,title,key,color', 'assignee:id,name,type', 'delegatedAgent:id,name,type']));
+        return new TaskResource($task->load(['project:id,title,key,color', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type']));
     }
 
     /**
@@ -96,7 +96,7 @@ class TaskController extends Controller
     {
         abort_unless($task->scope_id === $scope->id, 404);
 
-        return new TaskResource($task->load(['project:id,title,key,color', 'assignee:id,name,type', 'delegatedAgent:id,name,type', 'checklistItems.assignee:id,name', 'checklistItems.completedBy:id,name', 'blockers.responsibleUser:id,name', 'blockers.blockedBy:id,name', 'blockers.resolvedBy:id,name', 'children:id,scope_id,project_id,parent_id,task_key,title,status,priority,due_at,assignee_id']));
+        return new TaskResource($task->load(['project:id,title,key,color', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type', 'checklistItems.assignee:id,name', 'checklistItems.completedBy:id,name', 'blockers.responsibleUser:id,name', 'blockers.blockedBy:id,name', 'blockers.resolvedBy:id,name', 'children:id,scope_id,project_id,parent_id,task_key,title,status,priority,due_at,assignee_id']));
     }
 
     public function update(UpdateTaskRequest $request, Scope $scope, Task $task): TaskResource
@@ -153,7 +153,7 @@ class TaskController extends Controller
             'user_agent' => $request->userAgent(),
         ]);
 
-        return new TaskResource($task->fresh()->load(['project:id,title,key,color', 'assignee:id,name,type', 'delegatedAgent:id,name,type', 'checklistItems.assignee:id,name', 'checklistItems.completedBy:id,name', 'blockers.responsibleUser:id,name', 'blockers.blockedBy:id,name', 'blockers.resolvedBy:id,name', 'children:id,scope_id,project_id,parent_id,task_key,title,status,priority,due_at,assignee_id']));
+        return new TaskResource($task->fresh()->load(['project:id,title,key,color', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type', 'checklistItems.assignee:id,name', 'checklistItems.completedBy:id,name', 'blockers.responsibleUser:id,name', 'blockers.blockedBy:id,name', 'blockers.resolvedBy:id,name', 'children:id,scope_id,project_id,parent_id,task_key,title,status,priority,due_at,assignee_id']));
     }
 
     public function move(MoveTaskRequest $request, Scope $scope, Task $task): TaskResource
@@ -205,7 +205,7 @@ class TaskController extends Controller
             ]);
         });
 
-        return new TaskResource($task->fresh()->load(['project:id,title,key,color', 'assignee:id,name,type', 'delegatedAgent:id,name,type']));
+        return new TaskResource($task->fresh()->load(['project:id,title,key,color', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type']));
     }
 
     public function detach(Request $request, Scope $scope, Task $task): TaskResource
@@ -231,7 +231,7 @@ class TaskController extends Controller
             ]);
         });
 
-        return new TaskResource($task->fresh()->load(['project:id,title,key,color', 'assignee:id,name,type', 'delegatedAgent:id,name,type']));
+        return new TaskResource($task->fresh()->load(['project:id,title,key,color', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type']));
     }
 
     /** @param array<string, mixed> $data */
@@ -241,6 +241,12 @@ class TaskController extends Controller
             if (isset($data[$key])) {
                 abort_unless($scope->{$relation}()->whereKey($data[$key])->exists(), 422, "Invalid {$key} for this scope.");
             }
+        }
+
+        if (! empty($data['customer_id'])) {
+            abort_unless(User::query()->whereKey($data['customer_id'])->whereIn('type', ['real', 'virtual'])->where('status', 'active')->where('is_active', true)->where(function ($query) use ($scope): void {
+                $query->whereKey($scope->owner_id)->orWhereHas('scopeMemberships', fn ($members) => $members->where('scope_id', $scope->id)->where('is_active', true));
+            })->exists(), 422, 'The customer must be a real or virtual member of this scope.');
         }
 
         if (isset($data['project_id'])) {

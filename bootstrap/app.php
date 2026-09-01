@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\EnsureAgentAccount;
+use App\Http\Middleware\EnsureBookAccess;
 use App\Http\Middleware\EnsureContractorAbility;
 use App\Http\Middleware\EnsureScopeMember;
 use App\Http\Middleware\EnsureSpaRequestIsTrusted;
@@ -26,6 +27,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'agent' => EnsureAgentAccount::class,
             'scope.ability' => EnsureContractorAbility::class,
             'scope.actor' => ResolveContractorActor::class,
+            'book.access' => EnsureBookAccess::class,
         ]);
 
         $middleware->validateCsrfTokens(except: ['api/auth/*']);

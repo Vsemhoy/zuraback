@@ -37,6 +37,11 @@ class Project extends DomainModel
         return $this->hasMany(Task::class);
     }
 
+    public function books(): HasMany
+    {
+        return $this->hasMany(Book::class);
+    }
+
     public function members(): HasMany
     {
         return $this->hasMany(ProjectMember::class);

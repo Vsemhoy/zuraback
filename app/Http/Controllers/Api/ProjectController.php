@@ -28,7 +28,7 @@ class ProjectController extends Controller
         $query = $this->access->constrainProjects($scope->projects()->getQuery(), $this->context->actor($request), $scope);
 
         return ProjectResource::collection(
-            $query->orderBy('sort_order')->orderBy('title')->get()
+            $query->withCount(['tasks', 'books'])->orderBy('sort_order')->orderBy('title')->get()
         );
     }
 
@@ -41,7 +41,7 @@ class ProjectController extends Controller
         $data['sort_order'] ??= ((int) $scope->projects()->max('sort_order')) + 1;
         $project = $scope->projects()->create([...$data, 'created_by' => $this->context->actor($request)->id]);
 
-        return new ProjectResource($project);
+        return new ProjectResource($project->loadCount(['tasks', 'books']));
     }
 
     /**
@@ -51,7 +51,7 @@ class ProjectController extends Controller
     {
         abort_unless($project->scope_id === $scope->id, 404);
 
-        return new ProjectResource($project);
+        return new ProjectResource($project->load('books:id,scope_id,project_id,title')->loadCount(['tasks', 'books']));
     }
 
     public function update(UpdateProjectRequest $request, Scope $scope, Project $project): ProjectResource
@@ -59,6 +59,6 @@ class ProjectController extends Controller
         abort_unless($project->scope_id === $scope->id, 404);
         $project->update($request->validated());
 
-        return new ProjectResource($project->fresh());
+        return new ProjectResource($project->fresh()->load('books:id,scope_id,project_id,title')->loadCount(['tasks', 'books']));
     }
 }

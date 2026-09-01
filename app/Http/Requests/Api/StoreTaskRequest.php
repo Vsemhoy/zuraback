@@ -21,6 +21,7 @@ class StoreTaskRequest extends WorkspaceRequest
             'project_id' => ['nullable', 'ulid'],
             'parent_id' => ['nullable', 'ulid'],
             'assignee_id' => ['nullable', 'ulid'],
+            'customer_id' => ['nullable', 'ulid'],
             'is_agent_delegatable' => ['sometimes', 'boolean'],
             'delegated_agent_id' => ['nullable', 'ulid'],
             'responsibility_area_id' => ['nullable', 'ulid'],

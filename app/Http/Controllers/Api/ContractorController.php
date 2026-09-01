@@ -78,6 +78,7 @@ class ContractorController extends Controller
                 return [
                     'id' => $user->id,
                     'name' => $user->name,
+                    'position' => $user->position,
                     'type' => $user->type,
                     'is_current' => $user->id === $request->user()->id,
                     'project_access_mode' => $scope->owner_id === $user->id ? 'all' : ($membership?->project_access_mode ?? 'none'),
@@ -112,6 +113,7 @@ class ContractorController extends Controller
                 'role' => $data['role'] ?? 'member',
                 'permissions' => $data['permissions'] ?? ['allow' => [], 'deny' => []],
                 'project_access_mode' => $data['project_access_mode'] ?? 'all',
+                'book_access_mode' => $data['book_access_mode'] ?? 'none',
                 'joined_at' => now(),
             ]);
 
@@ -177,6 +179,7 @@ class ContractorController extends Controller
                     'role' => $data['role'],
                     'permissions' => $data['permissions'],
                     'project_access_mode' => $data['project_access_mode'],
+                    'book_access_mode' => $data['book_access_mode'] ?? $scope->members()->where('user_id', $contractor->id)->value('book_access_mode') ?? 'none',
                     'is_active' => true,
                     'joined_at' => now(),
                 ],
@@ -212,6 +215,7 @@ class ContractorController extends Controller
                         'role' => 'member',
                         'permissions' => ['allow' => [], 'deny' => []],
                         'project_access_mode' => 'none',
+                        'book_access_mode' => 'none',
                         'is_active' => true,
                         'joined_at' => now(),
                     ]);

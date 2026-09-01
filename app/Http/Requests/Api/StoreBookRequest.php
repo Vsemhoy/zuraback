@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Api;
 
 use Illuminate\Contracts\Validation\ValidationRule;
+
 class StoreBookRequest extends WorkspaceRequest
 {
     /**
@@ -18,6 +19,7 @@ class StoreBookRequest extends WorkspaceRequest
     {
         return [
             'space_id' => ['nullable', 'ulid'],
+            'project_id' => ['nullable', 'ulid'],
             'title' => ['required', 'string', 'max:255'],
             'slug' => ['nullable', 'alpha_dash', 'max:160'],
             'description' => ['nullable', 'string'],

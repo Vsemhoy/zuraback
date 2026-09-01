@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Book;
 use App\Models\Project;
 use App\Models\Scope;
 use App\Models\ScopeMember;
@@ -17,6 +18,9 @@ class ContractorAccessService
         'task.create',
         'task.update',
         'task.assign',
+        'book.view',
+        'book.create',
+        'book.update',
         'report.view',
         'report.write',
     ];
@@ -131,6 +135,47 @@ class ContractorAccessService
             return $query->whereHas('project.members', fn (Builder $members): Builder => $members
                 ->where('user_id', $user->id)
                 ->where('is_active', true));
+        }
+
+        return $query;
+    }
+
+    public function canAccessBook(User $user, Scope $scope, Book $book): bool
+    {
+        if ($book->scope_id !== $scope->id || ! $this->allows($user, $scope, 'book.view')) {
+            return false;
+        }
+        if ($scope->owner_id === $user->id) {
+            return true;
+        }
+        $membership = $this->membership($user, $scope);
+        if ($membership?->book_access_mode === 'none') {
+            return false;
+        }
+
+        return $membership?->book_access_mode === 'all'
+            || ($book->project_id !== null && $this->allows($user, $scope, 'task.view', $book->project));
+    }
+
+    /** @param Builder<Book> $query */
+    public function constrainBooks(Builder $query, User $user, Scope $scope): Builder
+    {
+        if ($scope->owner_id === $user->id) {
+            return $query;
+        }
+        $membership = $this->membership($user, $scope);
+        if ($membership === null || $membership->book_access_mode === 'none') {
+            return $query->whereRaw('1 = 0');
+        }
+        if ($membership->book_access_mode === 'projects') {
+            $query->whereNotNull('project_id');
+            if ($membership->project_access_mode === 'restricted') {
+                $query->whereHas('project.members', fn (Builder $members): Builder => $members->where('user_id', $user->id)->where('is_active', true));
+            } elseif ($membership->project_access_mode === 'none') {
+                $query->whereRaw('1 = 0');
+            }
+
+            return $query;
         }
 
         return $query;

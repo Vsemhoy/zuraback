@@ -5,18 +5,36 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\StoreEntityLinkRequest;
 use App\Http\Resources\EntityLinkResource;
+use App\Models\Book;
+use App\Models\BookPage;
+use App\Models\EntityLink;
 use App\Models\Scope;
-use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use App\Services\ContractorAccessService;
+use App\Services\ContractorContext;
 use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Http\Response;
 
 class EntityLinkController extends Controller
 {
+    public function __construct(private readonly ContractorAccessService $access, private readonly ContractorContext $context) {}
+
     /**
      * Display a listing of the resource.
      */
-    public function index(Scope $scope): AnonymousResourceCollection
+    public function index(Request $request, Scope $scope): AnonymousResourceCollection
     {
-        return EntityLinkResource::collection($scope->entityLinks()->latest()->paginate());
+        $query = $scope->entityLinks()->with(['source', 'target'])->latest();
+        if ($request->filled(['subject_type', 'subject_id'])) {
+            $type = (string) $request->query('subject_type');
+            $id = (string) $request->query('subject_id');
+            $query->where(fn ($links) => $links
+                ->where(fn ($side) => $side->where('source_type', $type)->where('source_id', $id))
+                ->orWhere(fn ($side) => $side->where('target_type', $type)->where('target_id', $id)));
+        }
+
+        return EntityLinkResource::collection($query->paginate(100));
     }
 
     /**
@@ -28,10 +46,23 @@ class EntityLinkController extends Controller
         foreach (['source', 'target'] as $side) {
             $model = Relation::getMorphedModel($data["{$side}_type"]);
             abort_unless($model !== null && $model::query()->whereKey($data["{$side}_id"])->where('scope_id', $scope->id)->exists(), 422, "Invalid {$side} for this scope.");
+            $entity = $model::query()->find($data["{$side}_id"]);
+            $book = $entity instanceof Book ? $entity : ($entity instanceof BookPage ? $entity->book : null);
+            if ($book !== null) {
+                abort_unless($this->access->canAccessBook($this->context->actor($request), $scope, $book->loadMissing('project')), 403, 'This book is outside the contractor access boundary.');
+            }
         }
         $link = $scope->entityLinks()->create([...$data, 'created_by' => $request->user()->id]);
 
-        return new EntityLinkResource($link);
+        return new EntityLinkResource($link->load(['source', 'target']));
+    }
+
+    public function destroy(Scope $scope, EntityLink $link): Response
+    {
+        abort_unless($link->scope_id === $scope->id, 404);
+        $link->delete();
+
+        return response()->noContent();
     }
 
     /**
