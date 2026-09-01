@@ -78,6 +78,26 @@ class TaskerApiTest extends TestCase
             ->assertOk()->assertJsonPath('data.0.project.color', '#2668D8');
     }
 
+    public function test_task_board_returns_more_than_the_default_pagination_page(): void
+    {
+        [$user, $scope] = $this->workspace();
+
+        foreach (range(1, 18) as $number) {
+            $scope->tasks()->create([
+                'created_by' => $user->id,
+                'task_key' => "TSK-{$number}",
+                'number' => $number,
+                'title' => "Task {$number}",
+            ]);
+        }
+
+        $this->actingAs($user)->withHeaders(self::HEADERS)
+            ->getJson("/api/scopes/{$scope->id}/tasks")
+            ->assertOk()
+            ->assertJsonCount(18, 'data')
+            ->assertJsonFragment(['task_key' => 'TSK-18']);
+    }
+
     public function test_checklist_completion_is_timestamped_and_reopening_is_audited(): void
     {
         [$user, $scope] = $this->workspace();

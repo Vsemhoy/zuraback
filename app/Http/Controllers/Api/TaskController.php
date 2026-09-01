@@ -34,7 +34,7 @@ class TaskController extends Controller
     {
         $query = $this->access->constrainTasks($scope->tasks()->getQuery(), $this->context->actor($request), $scope);
 
-        return TaskResource::collection($query->with(['project:id,title,key,color', 'kpi:id,name,kind,points,minimum_completed_tasks', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type'])->orderBy('sort_order')->orderBy('created_at')->paginate());
+        return TaskResource::collection($query->with(['project:id,title,key,color', 'kpi:id,name,kind,points,minimum_completed_tasks', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type'])->orderBy('sort_order')->orderBy('created_at')->get());
     }
 
     public function search(Request $request, Scope $scope): AnonymousResourceCollection

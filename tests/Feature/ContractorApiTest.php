@@ -175,6 +175,46 @@ class ContractorApiTest extends TestCase
         $this->assertDatabaseHas('scope_members', ['scope_id' => $second->id, 'user_id' => $contractor['id'], 'role' => 'member']);
     }
 
+    public function test_member_can_manage_only_agents_they_created(): void
+    {
+        [$owner, $scope] = $this->workspace();
+        $member = User::factory()->create();
+        $scope->members()->create([
+            'user_id' => $member->id,
+            'role' => 'member',
+            'permissions' => ['allow' => ['task.view', 'task.create', 'task.update'], 'deny' => []],
+            'project_access_mode' => 'all',
+            'joined_at' => now(),
+        ]);
+        $ownerAgent = User::factory()->agent()->create(['created_by' => $owner->id]);
+        $scope->members()->create(['user_id' => $ownerAgent->id, 'role' => 'observer', 'joined_at' => now()]);
+
+        $agent = $this->actingAs($member)->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/contractors", [
+                'name' => 'Andrew Agent',
+                'type' => 'agent',
+                'role' => 'admin',
+                'project_access_mode' => 'all',
+                'permissions' => ['allow' => ['task.view', 'task.create'], 'deny' => []],
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.type', 'agent')
+            ->assertJsonPath('data.role', 'observer')
+            ->json('data');
+
+        $this->withHeaders(self::HEADERS)->getJson("/api/scopes/{$scope->id}/contractors")
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $agent['id']);
+        $this->withHeaders(self::HEADERS)->postJson("/api/scopes/{$scope->id}/contractors", [
+            'name' => 'Forbidden virtual', 'type' => 'virtual',
+        ])->assertForbidden();
+        $this->withHeaders(self::HEADERS)->patchJson("/api/scopes/{$scope->id}/contractors/{$ownerAgent->id}", [
+            'name' => 'Stolen agent',
+        ])->assertForbidden();
+        $this->withHeaders(self::HEADERS)->postJson("/api/scopes/{$scope->id}/contractors/{$agent['id']}/tokens", [
+            'name' => 'Andrew workstation', 'abilities' => ['task.view'],
+        ])->assertCreated()->assertJsonStructure(['data' => ['token']]);
+    }
+
     /** @return array{User, Scope} */
     private function workspace(): array
     {

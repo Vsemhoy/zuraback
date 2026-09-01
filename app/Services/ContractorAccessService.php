@@ -14,6 +14,7 @@ class ContractorAccessService
 {
     public const ABILITIES = [
         'contractor.manage',
+        'agent.manage_own',
         'task.view',
         'task.create',
         'task.update',
@@ -28,7 +29,7 @@ class ContractorAccessService
     /** @var array<string, array<int, string>> */
     private const ROLE_ABILITIES = [
         'admin' => self::ABILITIES,
-        'member' => ['task.view', 'task.create', 'task.update', 'task.assign', 'report.view', 'report.write'],
+        'member' => ['agent.manage_own', 'task.view', 'task.create', 'task.update', 'task.assign', 'report.view', 'report.write'],
         'observer' => ['task.view', 'report.view'],
     ];
 
@@ -94,6 +95,28 @@ class ContractorAccessService
         }
 
         return $this->membership($user, $scope)?->project_access_mode === 'all';
+    }
+
+    public function canManageContractor(User $user, Scope $scope, User $contractor): bool
+    {
+        if ($this->allows($user, $scope, 'contractor.manage')) {
+            return true;
+        }
+
+        return $this->allows($user, $scope, 'agent.manage_own')
+            && $contractor->isAgent()
+            && $contractor->created_by === $user->id
+            && $scope->members()->where('user_id', $contractor->id)->where('is_active', true)->exists();
+    }
+
+    /** @return array<int, string> */
+    public function delegableAbilities(User $user, Scope $scope): array
+    {
+        return array_values(array_filter(
+            self::ABILITIES,
+            fn (string $ability): bool => ! in_array($ability, ['contractor.manage', 'agent.manage_own'], true)
+                && $this->allows($user, $scope, $ability),
+        ));
     }
 
     /** @param Builder<Project> $query */

@@ -23,8 +23,13 @@ use Illuminate\Support\Facades\DB;
 
 class ContractorController extends Controller
 {
+    public function __construct(private readonly ContractorAccessService $access) {}
+
     public function index(Request $request, Scope $scope): AnonymousResourceCollection
     {
+        $canManageAll = $this->access->allows($request->user(), $scope, 'contractor.manage');
+        abort_unless($canManageAll || $this->access->allows($request->user(), $scope, 'agent.manage_own'), Response::HTTP_FORBIDDEN, 'The agent.manage_own capability is required.');
+
         $contractors = User::query()
             ->where(function ($query) use ($scope): void {
                 $query->whereKey($scope->owner_id)
@@ -32,6 +37,9 @@ class ContractorController extends Controller
                         ->where('scope_id', $scope->id)
                         ->where('is_active', true));
             })
+            ->when(! $canManageAll, fn ($query) => $query
+                ->where('type', 'agent')
+                ->where('created_by', $request->user()->id))
             ->with($this->relations($scope, $request->user()))
             ->orderByRaw("CASE type WHEN 'real' THEN 1 WHEN 'virtual' THEN 2 ELSE 3 END")
             ->orderBy('name')
@@ -42,16 +50,20 @@ class ContractorController extends Controller
 
     public function options(Request $request, Scope $scope): JsonResponse
     {
+        $canManageAll = $this->access->allows($request->user(), $scope, 'contractor.manage');
+        abort_unless($canManageAll || $this->access->allows($request->user(), $scope, 'agent.manage_own'), Response::HTTP_FORBIDDEN, 'The agent.manage_own capability is required.');
+
         $manageableScopes = Scope::query()
             ->where('owner_id', $request->user()->id)
             ->orWhereHas('members', fn ($query) => $query->where('user_id', $request->user()->id)->where('is_active', true))
             ->get()->filter(fn (Scope $candidate): bool => app(ContractorAccessService::class)->allows($request->user(), $candidate, 'contractor.manage'));
 
         return response()->json(['data' => [
-            'abilities' => ContractorAccessService::ABILITIES,
-            'types' => User::TYPES,
+            'abilities' => $canManageAll ? ContractorAccessService::ABILITIES : $this->access->delegableAbilities($request->user(), $scope),
+            'types' => $canManageAll ? User::TYPES : ['agent'],
             'statuses' => User::STATUSES,
-            'manageable_scopes' => $manageableScopes->map(fn (Scope $candidate): array => ['id' => $candidate->id, 'name' => $candidate->name])->values(),
+            'manageable_scopes' => $canManageAll ? $manageableScopes->map(fn (Scope $candidate): array => ['id' => $candidate->id, 'name' => $candidate->name])->values() : [],
+            'can_manage_all' => $canManageAll,
         ]]);
     }
 
@@ -95,6 +107,11 @@ class ContractorController extends Controller
     public function store(StoreContractorRequest $request, Scope $scope): ContractorResource
     {
         $data = $request->validated();
+        $canManageAll = $this->access->allows($request->user(), $scope, 'contractor.manage');
+        abort_unless($canManageAll || ($this->access->allows($request->user(), $scope, 'agent.manage_own') && $data['type'] === 'agent'), Response::HTTP_FORBIDDEN, 'Only own agent accounts can be created without contractor.manage.');
+        if (! $canManageAll) {
+            $data = $this->constrainOwnAgentData($request->user(), $scope, $data);
+        }
 
         $contractor = DB::transaction(function () use ($data, $request, $scope): User {
             $status = $data['status'] ?? 'active';
@@ -129,6 +146,7 @@ class ContractorController extends Controller
     public function show(Request $request, Scope $scope, User $contractor): ContractorResource
     {
         $this->assertContractor($scope, $contractor);
+        $this->assertCanManage($request, $scope, $contractor);
 
         return new ContractorResource($contractor->load($this->relations($scope, $request->user())));
     }
@@ -136,7 +154,12 @@ class ContractorController extends Controller
     public function update(UpdateContractorRequest $request, Scope $scope, User $contractor): ContractorResource
     {
         $this->assertContractor($scope, $contractor);
+        $this->assertCanManage($request, $scope, $contractor);
         $data = $request->validated();
+        if (! $this->access->allows($request->user(), $scope, 'contractor.manage')) {
+            abort_if(isset($data['type']) && $data['type'] !== 'agent', 403, 'Own agents cannot be converted to another account type.');
+            $data['type'] = 'agent';
+        }
         $targetType = $data['type'] ?? $contractor->type;
         $targetEmail = array_key_exists('email', $data) ? $data['email'] : $contractor->email;
         $targetPassword = array_key_exists('password', $data) ? $data['password'] : $contractor->password;
@@ -167,7 +190,11 @@ class ContractorController extends Controller
     public function updateAccess(UpdateContractorAccessRequest $request, Scope $scope, User $contractor): ContractorResource
     {
         $this->assertContractor($scope, $contractor);
+        $this->assertCanManage($request, $scope, $contractor);
         $data = $request->validated();
+        if (! $this->access->allows($request->user(), $scope, 'contractor.manage')) {
+            $data = $this->constrainOwnAgentData($request->user(), $scope, $data);
+        }
         $isOwner = $scope->owner_id === $contractor->id;
         abort_if($isOwner && $data['role'] !== 'owner', 422, 'The scope owner role cannot be changed.');
         abort_if(! $isOwner && $data['role'] === 'owner', 422, 'The owner role is reserved for the scope owner.');
@@ -229,6 +256,7 @@ class ContractorController extends Controller
     public function storeToken(StoreAgentTokenRequest $request, Scope $scope, User $contractor): JsonResponse
     {
         $this->assertContractor($scope, $contractor);
+        $this->assertCanManage($request, $scope, $contractor);
         abort_unless($contractor->isAgent(), 422, 'Tokens can only be issued to agent accounts.');
 
         $data = $request->validated();
@@ -250,6 +278,7 @@ class ContractorController extends Controller
     public function destroyToken(Request $request, Scope $scope, User $contractor, int $token): Response
     {
         $this->assertContractor($scope, $contractor);
+        $this->assertCanManage($request, $scope, $contractor);
         $contractor->tokens()->whereKey($token)->delete();
 
         return response()->noContent();
@@ -301,6 +330,45 @@ class ContractorController extends Controller
             ->where('user_id', $contractor->id)
             ->exists();
         abort_unless($belongsToScope, Response::HTTP_NOT_FOUND);
+    }
+
+    private function assertCanManage(Request $request, Scope $scope, User $contractor): void
+    {
+        abort_unless($this->access->canManageContractor($request->user(), $scope, $contractor), Response::HTTP_FORBIDDEN, 'This contractor cannot be managed by this user.');
+    }
+
+    /** @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function constrainOwnAgentData(User $manager, Scope $scope, array $data): array
+    {
+        $membership = $this->access->membership($manager, $scope);
+        $allowedAbilities = $this->access->delegableAbilities($manager, $scope);
+        $requestedAllow = $data['permissions']['allow'] ?? [];
+        abort_if(array_diff($requestedAllow, $allowedAbilities) !== [], 403, 'An own agent cannot receive capabilities its manager does not have.');
+
+        $data['type'] = 'agent';
+        $data['role'] = 'observer';
+        $data['can_act_as'] = false;
+        $data['book_access_mode'] = 'none';
+        $data['permissions'] = [
+            'allow' => array_values(array_intersect($requestedAllow, $allowedAbilities)),
+            'deny' => array_values($data['permissions']['deny'] ?? []),
+        ];
+
+        if ($membership?->project_access_mode === 'all') {
+            return $data;
+        }
+
+        $allowedProjectIds = $manager->projectMemberships()
+            ->whereHas('project', fn ($query) => $query->where('scope_id', $scope->id))
+            ->where('is_active', true)
+            ->pluck('project_id')
+            ->all();
+        $data['project_ids'] = array_values(array_intersect($data['project_ids'] ?? [], $allowedProjectIds));
+        $data['project_access_mode'] = $membership?->project_access_mode === 'restricted' ? 'restricted' : 'none';
+
+        return $data;
     }
 
     /** @param array<int, string> $projectIds */
