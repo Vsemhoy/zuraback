@@ -21,6 +21,10 @@ class PlannerApiTest extends TestCase
         $project = $this->actingAs($owner)->withHeaders(self::HEADERS)->postJson("/api/scopes/{$scope->id}/projects", [
             'title' => 'Administration', 'key' => 'ADM', 'color' => '#D97706',
         ])->assertCreated()->json('data');
+        $unscheduled = $scope->tasks()->create([
+            'project_id' => $project['id'], 'created_by' => $owner->id,
+            'task_key' => 'ADM-99', 'number' => 99, 'title' => 'Unscheduled work', 'status' => 'todo',
+        ]);
         $task = $this->withHeaders(self::HEADERS)->postJson("/api/scopes/{$scope->id}/tasks", [
             'title' => 'Prepare release', 'project_id' => $project['id'], 'status' => 'scheduled', 'due_at' => '2026-09-02 12:00:00',
         ])->assertCreated()->json('data');
@@ -30,7 +34,13 @@ class PlannerApiTest extends TestCase
             'task_id' => $task['id'], 'planned_on' => '2026-09-04',
         ])->assertCreated()->assertJsonPath('data.task.task_key', 'ADM-1')->json('data');
         $this->withHeaders(self::HEADERS)->getJson("/api/scopes/{$scope->id}/planner?from=2026-09-01&to=2026-09-30")
-            ->assertOk()->assertJsonPath('data.tasks.0.id', $task['id'])->assertJsonPath('data.tails.0.id', $tail['id']);
+            ->assertOk()->assertJsonPath('data.tasks.0.id', $task['id'])
+            ->assertJsonPath('data.unscheduled.0.id', $unscheduled['id'])
+            ->assertJsonPath('data.tails.0.id', $tail['id']);
+        $this->withHeaders(self::HEADERS)->patchJson("/api/scopes/{$scope->id}/tasks/{$unscheduled['id']}", ['due_at' => '2026-09-06 12:00:00'])
+            ->assertOk()->assertJsonPath('data.due_at', '2026-09-06T12:00:00.000000Z');
+        $this->withHeaders(self::HEADERS)->getJson("/api/scopes/{$scope->id}/planner?from=2026-09-01&to=2026-09-30")
+            ->assertOk()->assertJsonMissingPath('data.unscheduled.0')->assertJsonFragment(['id' => $unscheduled['id']]);
         $copy = $this->withHeaders(self::HEADERS)->postJson("/api/scopes/{$scope->id}/planner/tasks/{$task['id']}/copy", ['planned_on' => '2026-09-07'])
             ->assertCreated()->assertJsonPath('data.task_key', 'ADM-2')->json('data');
         $this->assertDatabaseHas('task_checklist_items', ['task_id' => $copy['id'], 'title' => 'Check backup']);

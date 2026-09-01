@@ -48,6 +48,10 @@ class TaskPlannerController extends Controller
         $tasks = (clone $query)->whereBetween('due_at', [$from, $to])
             ->with(['project:id,title,key,color', 'assignee:id,name,type', 'delegatedAgent:id,name,type'])
             ->orderBy('due_at')->orderBy('sort_order')->get();
+        $unscheduled = (clone $query)->whereNull('due_at')
+            ->whereNotIn('status', ['done', 'cancelled'])
+            ->with(['project:id,title,key,color', 'assignee:id,name,type', 'delegatedAgent:id,name,type'])
+            ->orderByDesc('updated_at')->limit(200)->get();
         $accessibleIds = (clone $query)->select('tasks.id');
         $tails = TaskPlannerTail::query()->where('scope_id', $scope->id)
             ->whereBetween('planned_on', [$data['from'], $data['to']])
@@ -58,6 +62,7 @@ class TaskPlannerController extends Controller
         return response()->json([
             'data' => [
                 'tasks' => TaskResource::collection($tasks)->resolve($request),
+                'unscheduled' => TaskResource::collection($unscheduled)->resolve($request),
                 'tails' => $tails->map(fn (TaskPlannerTail $tail): array => [
                     'id' => $tail->id,
                     'planned_on' => $tail->planned_on->format('Y-m-d'),
