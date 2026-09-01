@@ -33,9 +33,9 @@ class UpdateContractorAccessRequest extends FormRequest
             'project_ids.*' => ['ulid', 'distinct', Rule::exists('projects', 'id')->where('scope_id', $scopeId)],
             'permissions' => ['required', 'array:allow,deny'],
             'permissions.allow' => ['present', 'array'],
-            'permissions.allow.*' => ['string', 'distinct', Rule::in(ContractorAccessService::ABILITIES)],
+            'permissions.allow.*' => ['string', 'distinct', Rule::in([...ContractorAccessService::ABILITIES, '*'])],
             'permissions.deny' => ['present', 'array'],
-            'permissions.deny.*' => ['string', 'distinct', Rule::in(ContractorAccessService::ABILITIES)],
+            'permissions.deny.*' => ['string', 'distinct', Rule::in([...ContractorAccessService::ABILITIES, '*'])],
             'can_act_as' => ['sometimes', 'boolean'],
         ];
     }

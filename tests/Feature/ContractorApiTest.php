@@ -119,11 +119,12 @@ class ContractorApiTest extends TestCase
                 'role' => 'owner',
                 'project_access_mode' => 'all',
                 'project_ids' => [],
-                'permissions' => ['allow' => ['contractor.manage'], 'deny' => []],
+                'permissions' => ['allow' => ['*'], 'deny' => []],
                 'can_act_as' => false,
             ])
             ->assertOk()
-            ->assertJsonPath('data.role', 'owner');
+            ->assertJsonPath('data.role', 'owner')
+            ->assertJsonPath('data.permissions.allow.0', '*');
 
         $this->assertDatabaseHas('scope_members', [
             'scope_id' => $scope->id,
