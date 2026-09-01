@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\BookPageResource;
 use App\Models\Book;
+use App\Models\BookBlock;
 use App\Models\BookPage;
 use App\Models\BookBlockGroup;
 use App\Models\BookPageVersion;
@@ -44,11 +45,7 @@ class BookPageEditingController extends Controller
                 ]);
                 $page->update(['editing_by' => $request->user()->id, 'editing_started_at' => now()]);
 
-                $keep = max(1, min(100, (int) $book->version_depth));
-                $obsolete = $page->versions()->latest('version_number')->skip($keep)->take(1000)->pluck('id');
-                if ($obsolete->isNotEmpty()) {
-                    $page->versions()->whereIn('id', $obsolete)->delete();
-                }
+                $this->trimVersions($page, $book);
             }
 
             return $page;
@@ -76,39 +73,7 @@ class BookPageEditingController extends Controller
         DB::transaction(function () use ($bookPage): void {
             $page = BookPage::query()->lockForUpdate()->findOrFail($bookPage->id);
             $version = $page->versions()->latest('version_number')->firstOrFail();
-            $snapshot = $version->snapshot;
-            $snapshotGroups = collect($snapshot['blocks'] ?? []);
-            $snapshotIds = $snapshotGroups->pluck('group.id')->filter()->all();
-
-            $page->groups()->whereNotIn('id', $snapshotIds)->delete();
-            foreach ($snapshotGroups as $entry) {
-                $groupData = $entry['group'] ?? [];
-                $blockData = $entry['block'] ?? null;
-                $group = BookBlockGroup::withTrashed()->find($groupData['id'] ?? null);
-                if (!$group) continue;
-                if ($group->trashed()) $group->restore();
-                $group->update([
-                    'type' => $groupData['type'] ?? 'markdown',
-                    'role' => $groupData['role'] ?? 'content',
-                    'visibility' => $groupData['visibility'] ?? 'private',
-                    'is_hidden_by_default' => $groupData['is_hidden_by_default'] ?? false,
-                    'sort_order' => $groupData['sort_order'] ?? 0,
-                    'meta' => $groupData['meta'] ?? null,
-                    'master_block_id' => $blockData['id'] ?? null,
-                ]);
-            }
-
-            $pageData = $snapshot['page'] ?? [];
-            $page->update([
-                'parent_id' => $pageData['parent_id'] ?? null,
-                'title' => $pageData['title'] ?? $page->title,
-                'slug' => $pageData['slug'] ?? null,
-                'visibility' => $pageData['visibility'] ?? 'private',
-                'sort_order' => $pageData['sort_order'] ?? 0,
-                'meta' => $pageData['meta'] ?? null,
-                'editing_by' => null,
-                'editing_started_at' => null,
-            ]);
+            $this->applySnapshot($page, $version->snapshot);
             $version->delete();
         });
 
@@ -142,6 +107,30 @@ class BookPageEditingController extends Controller
         ]]);
     }
 
+    public function restore(Request $request, Scope $scope, Book $book, BookPage $bookPage, BookPageVersion $version): BookPageResource
+    {
+        $this->assertPageInScope($scope, $book, $bookPage);
+        abort_unless($version->page_id === $bookPage->id, 404);
+
+        DB::transaction(function () use ($request, $book, $bookPage, $version): void {
+            $page = BookPage::query()->lockForUpdate()->findOrFail($bookPage->id);
+            abort_if($page->editing_by && $page->editing_by !== $request->user()->id, 423, 'Страница редактируется другим пользователем.');
+
+            $page->load(['groups' => fn ($query) => $query->orderBy('sort_order'), 'groups.masterBlock']);
+            $nextVersion = ((int) $page->versions()->max('version_number')) + 1;
+            $page->versions()->create([
+                'created_by' => $request->user()->id,
+                'version_number' => $nextVersion,
+                'snapshot' => $this->snapshot($page),
+            ]);
+
+            $this->applySnapshot($page, $version->snapshot);
+            $this->trimVersions($page, $book);
+        });
+
+        return new BookPageResource($bookPage->fresh()->load(['editor:id,name,username', 'groups.masterBlock'])->loadCount('versions'));
+    }
+
     private function snapshot(BookPage $page): array
     {
         return [
@@ -153,6 +142,59 @@ class BookPageEditingController extends Controller
                 'block' => $group->masterBlock?->only(['id', 'version_number', 'title', 'content', 'payload', 'search_text', 'status', 'published_at']),
             ])->values()->all(),
         ];
+    }
+
+    private function applySnapshot(BookPage $page, array $snapshot): void
+    {
+        abort_unless(($snapshot['format'] ?? null) === 'booker-page', 422, 'Неподдерживаемый формат снимка.');
+        $snapshotGroups = collect($snapshot['blocks'] ?? []);
+        $snapshotIds = $snapshotGroups->pluck('group.id')->filter()->all();
+
+        $page->groups()->whereNotIn('id', $snapshotIds)->delete();
+        foreach ($snapshotGroups as $entry) {
+            $groupData = $entry['group'] ?? [];
+            $blockData = $entry['block'] ?? null;
+            $group = BookBlockGroup::withTrashed()->find($groupData['id'] ?? null);
+            abort_unless($group && $group->page_id === $page->id, 409, 'Снимок ссылается на недоступный блок.');
+            if ($group->trashed()) $group->restore();
+
+            $masterBlockId = null;
+            if ($blockData) {
+                $block = BookBlock::withTrashed()->find($blockData['id'] ?? null);
+                abort_unless($block && $block->group_id === $group->id, 409, 'Снимок ссылается на недоступную версию блока.');
+                if ($block->trashed()) $block->restore();
+                $masterBlockId = $block->id;
+            }
+
+            $group->update([
+                'type' => $groupData['type'] ?? 'markdown',
+                'role' => $groupData['role'] ?? 'content',
+                'visibility' => $groupData['visibility'] ?? 'private',
+                'is_hidden_by_default' => $groupData['is_hidden_by_default'] ?? false,
+                'sort_order' => $groupData['sort_order'] ?? 0,
+                'meta' => $groupData['meta'] ?? null,
+                'master_block_id' => $masterBlockId,
+            ]);
+        }
+
+        $pageData = $snapshot['page'] ?? [];
+        $page->update([
+            'parent_id' => $pageData['parent_id'] ?? null,
+            'title' => $pageData['title'] ?? $page->title,
+            'slug' => $pageData['slug'] ?? null,
+            'visibility' => $pageData['visibility'] ?? 'private',
+            'sort_order' => $pageData['sort_order'] ?? 0,
+            'meta' => $pageData['meta'] ?? null,
+            'editing_by' => null,
+            'editing_started_at' => null,
+        ]);
+    }
+
+    private function trimVersions(BookPage $page, Book $book): void
+    {
+        $keep = max(1, min(100, (int) $book->version_depth));
+        $obsolete = $page->versions()->latest('version_number')->skip($keep)->take(1000)->pluck('id');
+        if ($obsolete->isNotEmpty()) $page->versions()->whereIn('id', $obsolete)->delete();
     }
 
     private function assertPageInScope(Scope $scope, Book $book, BookPage $bookPage): void

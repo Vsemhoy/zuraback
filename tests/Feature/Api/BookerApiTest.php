@@ -38,4 +38,18 @@ class BookerApiTest extends TestCase {
   $this->withHeaders(self::HEADERS)->postJson("/api/scopes/{$scope->id}/books/{$book->id}/pages/{$page->id}/blocks",['type'=>'markdown','content'=>'intrusion'])
    ->assertStatus(423);
  }
+
+ public function test_page_version_can_be_restored_and_the_previous_state_is_preserved(): void {
+  $user=User::factory()->create(); $scope=Scope::query()->create(['owner_id'=>$user->id,'name'=>'Work','slug'=>'work']); $scope->members()->create(['user_id'=>$user->id,'role'=>'owner','joined_at'=>now()]);
+  $book=$scope->books()->create(['created_by'=>$user->id,'title'=>'Runbooks','version_depth'=>25]); $page=$book->pages()->create(['created_by'=>$user->id,'title'=>'Original']);
+  $this->actingAs($user)->withHeaders(self::HEADERS)->postJson("/api/scopes/{$scope->id}/books/{$book->id}/pages/{$page->id}/editing")->assertOk();
+  $versionId=$this->withHeaders(self::HEADERS)->getJson("/api/scopes/{$scope->id}/books/{$book->id}/pages/{$page->id}/versions")->assertOk()->json('data.0.id');
+  $this->withHeaders(self::HEADERS)->patchJson("/api/scopes/{$scope->id}/books/{$book->id}/pages/{$page->id}",['title'=>'Changed'])->assertOk();
+  $group=$this->withHeaders(self::HEADERS)->postJson("/api/scopes/{$scope->id}/books/{$book->id}/pages/{$page->id}/blocks",['type'=>'markdown','content'=>'New content'])->assertCreated()->json('data');
+  $this->withHeaders(self::HEADERS)->postJson("/api/scopes/{$scope->id}/books/{$book->id}/pages/{$page->id}/versions/{$versionId}/restore")
+   ->assertOk()->assertJsonPath('data.title','Original')->assertJsonPath('data.editing_by',null)->assertJsonPath('data.versions_count',2)->assertJsonCount(0,'data.groups');
+  $safetyVersionId=$this->withHeaders(self::HEADERS)->getJson("/api/scopes/{$scope->id}/books/{$book->id}/pages/{$page->id}/versions")->assertOk()->json('data.0.id');
+  $this->withHeaders(self::HEADERS)->postJson("/api/scopes/{$scope->id}/books/{$book->id}/pages/{$page->id}/versions/{$safetyVersionId}/restore")
+   ->assertOk()->assertJsonPath('data.title','Changed')->assertJsonPath('data.groups.0.id',$group['id'])->assertJsonPath('data.groups.0.master_block.content','New content')->assertJsonPath('data.versions_count',3);
+ }
 }
