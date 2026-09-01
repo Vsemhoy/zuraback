@@ -17,7 +17,7 @@ class FactController extends Controller
      */
     public function index(Scope $scope): AnonymousResourceCollection
     {
-        return FactResource::collection($scope->facts()->latest()->paginate());
+        return FactResource::collection($scope->facts()->latest()->get());
     }
 
     /**

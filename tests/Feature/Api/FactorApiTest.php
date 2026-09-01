@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Api;
 
+use App\Models\Fact;
 use App\Models\Scope;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -26,5 +27,29 @@ class FactorApiTest extends TestCase
         $this->withHeaders(self::HEADERS)->patchJson("/api/scopes/{$scope->id}/facts/{$fact['id']}", [
             'value' => 'srv-1c-02.local', 'is_expert' => true, 'is_pinned' => true,
         ])->assertOk()->assertJsonPath('data.value', 'srv-1c-02.local')->assertJsonPath('data.is_expert', true)->assertJsonPath('data.is_pinned', true);
+    }
+
+    public function test_fact_list_is_not_truncated_to_the_first_page(): void
+    {
+        $user = User::factory()->create();
+        $scope = Scope::query()->create(['owner_id' => $user->id, 'name' => 'Work', 'slug' => 'work']);
+        $scope->members()->create(['user_id' => $user->id, 'role' => 'owner', 'joined_at' => now()]);
+
+        foreach (range(1, 20) as $number) {
+            Fact::query()->create([
+                'scope_id' => $scope->id,
+                'created_by' => $user->id,
+                'label' => "Fact {$number}",
+                'value' => "Value {$number}",
+                'format' => 'text',
+                'kind' => 'other',
+            ]);
+        }
+
+        $this->actingAs($user)
+            ->withHeaders(self::HEADERS)
+            ->getJson("/api/scopes/{$scope->id}/facts")
+            ->assertOk()
+            ->assertJsonCount(20, 'data');
     }
 }
