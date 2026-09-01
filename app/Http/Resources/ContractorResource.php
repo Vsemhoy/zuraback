@@ -23,6 +23,7 @@ class ContractorResource extends JsonResource
             'position' => $this->position,
             'type' => $this->type,
             'status' => $this->status,
+            'is_executor' => $this->is_executor,
             'username' => $this->username,
             'email' => $this->email,
             'activated_at' => $this->activated_at,

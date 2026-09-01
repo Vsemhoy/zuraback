@@ -171,6 +171,7 @@ class DashboardController extends Controller
         ];
         $people = User::query()
             ->whereIn('type', ['real', 'virtual'])
+            ->where('is_executor', true)
             ->where(fn ($query) => $query->whereKey($scope->owner_id)->orWhereHas('scopeMemberships', fn ($members) => $members->where('scope_id', $scope->id)->where('is_active', true)))
             ->orderBy('name')
             ->get(['id', 'name', 'position', 'type'])

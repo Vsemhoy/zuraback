@@ -17,7 +17,7 @@ class DashboardApiTest extends TestCase
     public function test_dashboard_combines_personal_work_book_comments_kpis_and_recent_entities(): void
     {
         $owner = User::factory()->create(['name' => 'Owner']);
-        $colleague = User::factory()->create(['name' => 'Colleague']);
+        $colleague = User::factory()->create(['name' => 'Colleague', 'is_executor' => false]);
         $scope = Scope::query()->create(['owner_id' => $owner->id, 'name' => 'Work', 'slug' => 'work']);
         $scope->members()->create(['user_id' => $owner->id, 'role' => 'owner', 'book_access_mode' => 'all', 'joined_at' => now()]);
         $scope->members()->create(['user_id' => $colleague->id, 'role' => 'member', 'joined_at' => now()]);
@@ -36,6 +36,7 @@ class DashboardApiTest extends TestCase
             ->assertJsonPath('data.book_comments.0.content', 'Проверь этот раздел')
             ->assertJsonPath('data.book_comments.0.book.id', $book->id)
             ->assertJsonPath('data.kpi.me.bonus_points', 25)
+            ->assertJsonCount(0, 'data.kpi.team')
             ->assertJsonPath('data.recent.projects.0.id', $project->id)
             ->assertJsonPath('data.recent.books.0.id', $book->id);
     }

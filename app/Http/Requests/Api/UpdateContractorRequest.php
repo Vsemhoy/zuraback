@@ -31,6 +31,7 @@ class UpdateContractorRequest extends FormRequest
             'position' => ['sometimes', 'nullable', 'string', 'max:255'],
             'type' => ['sometimes', Rule::in(User::TYPES)],
             'status' => ['sometimes', Rule::in(User::STATUSES)],
+            'is_executor' => ['sometimes', 'boolean'],
             'username' => ['sometimes', 'nullable', 'string', 'max:255', 'alpha_dash', Rule::unique('users', 'username')->ignore($contractor)],
             'email' => ['sometimes', 'nullable', 'email', 'max:255', Rule::unique('users', 'email')->ignore($contractor)],
             'password' => ['sometimes', 'nullable', 'string', 'min:8'],

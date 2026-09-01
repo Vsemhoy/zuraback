@@ -32,6 +32,7 @@ class StoreContractorRequest extends FormRequest
             'position' => ['nullable', 'string', 'max:255'],
             'type' => ['required', Rule::in(User::TYPES)],
             'status' => ['sometimes', Rule::in(User::STATUSES)],
+            'is_executor' => ['sometimes', 'boolean'],
             'username' => ['nullable', 'string', 'max:255', 'alpha_dash', Rule::unique('users', 'username')],
             'email' => ['nullable', 'email', 'max:255', Rule::requiredIf($this->input('type') === 'real'), Rule::unique('users', 'email')],
             'password' => ['nullable', 'string', 'min:8', Rule::requiredIf($this->input('type') === 'real')],

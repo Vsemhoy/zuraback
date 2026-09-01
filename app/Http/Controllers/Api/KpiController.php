@@ -55,6 +55,7 @@ class KpiController extends Controller
         if ($userId !== null) {
             $belongsToScope = $scope->owner_id === $userId || $scope->members()->where('user_id', $userId)->where('is_active', true)->exists();
             abort_unless($belongsToScope && User::query()->whereKey($userId)->whereIn('type', ['real', 'virtual'])->exists(), 422, 'The selected person is unavailable in this scope.');
+            abort_unless(User::query()->whereKey($userId)->where('is_executor', true)->exists(), 422, 'The selected person is not an executor.');
         }
         $month = CarbonImmutable::createFromFormat('!Y-m', (string) $request->input('month', now()->format('Y-m')));
         abort_if($month === false, 422, 'Month must use YYYY-MM format.');
@@ -74,6 +75,7 @@ class KpiController extends Controller
         $targets = $this->targets($scope);
         $people = User::query()
             ->whereIn('type', ['real', 'virtual'])
+            ->where('is_executor', true)
             ->where(fn ($query) => $query->whereKey($scope->owner_id)->orWhereHas('scopeMemberships', fn ($members) => $members->where('scope_id', $scope->id)->where('is_active', true)))
             ->when($userId, fn ($query) => $query->whereKey($userId))
             ->orderBy('name')

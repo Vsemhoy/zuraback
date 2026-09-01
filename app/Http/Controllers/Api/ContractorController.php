@@ -99,6 +99,7 @@ class ContractorController extends Controller
                     'name' => $user->name,
                     'position' => $user->position,
                     'type' => $user->type,
+                    'is_executor' => $user->is_executor,
                     'is_current' => $user->id === $request->user()->id,
                     'project_access_mode' => $scope->owner_id === $user->id ? 'all' : ($membership?->project_access_mode ?? 'none'),
                     'project_ids' => $user->projectMemberships->pluck('project_id')->values(),
@@ -106,7 +107,8 @@ class ContractorController extends Controller
             });
 
         return response()->json(['data' => [
-            'assignees' => $users->whereIn('type', ['real', 'virtual'])->values(),
+            'people' => $users->whereIn('type', ['real', 'virtual'])->values(),
+            'assignees' => $users->whereIn('type', ['real', 'virtual'])->where('is_executor', true)->values(),
             'agents' => $users->where('type', 'agent')->values(),
         ]]);
     }
@@ -130,6 +132,7 @@ class ContractorController extends Controller
                 'created_by' => $request->user()->id,
                 'activated_at' => $type === 'real' && $status === 'active' ? now() : null,
                 'is_active' => $status === 'active',
+                'is_executor' => $data['is_executor'] ?? ($type !== 'agent'),
             ]);
 
             $scope->members()->create([

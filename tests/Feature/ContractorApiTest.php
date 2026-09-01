@@ -175,6 +175,27 @@ class ContractorApiTest extends TestCase
         $this->assertDatabaseHas('scope_members', ['scope_id' => $second->id, 'user_id' => $contractor['id'], 'role' => 'member']);
     }
 
+    public function test_only_executor_people_are_assignable_while_all_people_remain_available_as_customers(): void
+    {
+        [$owner, $scope] = $this->workspace();
+        $manager = $this->actingAs($owner)->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/contractors", [
+                'name' => 'Non executing manager', 'type' => 'virtual', 'is_executor' => false,
+            ])->assertCreated()->assertJsonPath('data.is_executor', false)->json('data');
+
+        $this->withHeaders(self::HEADERS)->getJson("/api/scopes/{$scope->id}/contractors/assignable")
+            ->assertOk()
+            ->assertJsonPath('data.people', fn (array $people): bool => collect($people)->contains('id', $manager['id']))
+            ->assertJsonPath('data.assignees', fn (array $people): bool => ! collect($people)->contains('id', $manager['id']));
+
+        $this->withHeaders(self::HEADERS)
+            ->patchJson("/api/scopes/{$scope->id}/contractors/{$manager['id']}", ['is_executor' => true])
+            ->assertOk()->assertJsonPath('data.is_executor', true);
+
+        $this->withHeaders(self::HEADERS)->getJson("/api/scopes/{$scope->id}/contractors/assignable")
+            ->assertOk()->assertJsonPath('data.assignees', fn (array $people): bool => collect($people)->contains('id', $manager['id']));
+    }
+
     public function test_member_can_manage_only_agents_they_created(): void
     {
         [$owner, $scope] = $this->workspace();

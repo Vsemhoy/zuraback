@@ -33,6 +33,7 @@ class UserFactory extends Factory
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
             'is_active' => true,
+            'is_executor' => true,
             'remember_token' => Str::random(10),
         ];
     }
@@ -61,6 +62,7 @@ class UserFactory extends Factory
     {
         return $this->state(fn (array $attributes): array => [
             'type' => 'agent',
+            'is_executor' => false,
             'email' => null,
             'password' => null,
             'email_verified_at' => null,
