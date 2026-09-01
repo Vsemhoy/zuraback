@@ -98,6 +98,8 @@ class ContractorApiTest extends TestCase
 
     public function test_agent_can_fetch_the_current_markdown_specification_without_exposing_its_token(): void
     {
+        $this->get('/api/agent/spec', ['Accept' => 'text/markdown'])->assertUnauthorized();
+
         [$owner, $scope] = $this->workspace();
         $agent = User::factory()->agent()->create(['name' => 'Instruction Agent']);
         $scope->members()->create([
