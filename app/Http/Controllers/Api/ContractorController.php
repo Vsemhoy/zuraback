@@ -8,9 +8,12 @@ use App\Http\Requests\Api\StoreContractorRequest;
 use App\Http\Requests\Api\UpdateContractorAccessRequest;
 use App\Http\Requests\Api\UpdateContractorRequest;
 use App\Http\Resources\ContractorResource;
+use App\Models\ActivityLog;
+use App\Models\BookPage;
 use App\Models\ContractorDelegation;
 use App\Models\ProjectMember;
 use App\Models\Scope;
+use App\Models\Task;
 use App\Models\User;
 use App\Services\ContractorAccessService;
 use Illuminate\Http\JsonResponse;
@@ -280,6 +283,45 @@ class ContractorController extends Controller
         $this->assertContractor($scope, $contractor);
         $this->assertCanManage($request, $scope, $contractor);
         $contractor->tokens()->whereKey($token)->delete();
+
+        return response()->noContent();
+    }
+
+    public function destroy(Request $request, Scope $scope, User $contractor): Response
+    {
+        $this->assertContractor($scope, $contractor);
+        $canDeleteOwnAgent = $this->access->allows($request->user(), $scope, 'agent.manage_own')
+            && $this->access->canManageContractor($request->user(), $scope, $contractor);
+        abort_unless($this->access->allows($request->user(), $scope, 'contractor.delete') || $canDeleteOwnAgent, Response::HTTP_FORBIDDEN, 'The contractor.delete capability is required.');
+        abort_if($contractor->is($request->user()), 422, 'You cannot delete the account currently in use.');
+        abort_if($contractor->ownedScopes()->exists(), 422, 'A scope owner cannot be deleted. Transfer or delete their scopes first.');
+
+        DB::transaction(function () use ($request, $scope, $contractor): void {
+            $contractor->tokens()->delete();
+            $contractor->scopeMemberships()->update(['is_active' => false]);
+            $contractor->projectMemberships()->update(['is_active' => false]);
+            $contractor->delegatedPersonas()->update(['is_active' => false]);
+            $contractor->receivedDelegations()->update(['is_active' => false]);
+            Task::query()->where('assignee_id', $contractor->id)->update(['assignee_id' => null]);
+            Task::query()->where('customer_id', $contractor->id)->update(['customer_id' => null]);
+            Task::query()->where('delegated_agent_id', $contractor->id)->update(['delegated_agent_id' => null, 'is_agent_delegatable' => false]);
+            Task::query()->where('approved_by', $contractor->id)->update(['approved_by' => null, 'approved_at' => null]);
+            BookPage::query()->where('editing_by', $contractor->id)->update(['editing_by' => null, 'editing_started_at' => null]);
+            $contractor->update(['status' => 'blocked', 'is_active' => false]);
+            $contractor->delete();
+
+            ActivityLog::query()->create([
+                'scope_id' => $scope->id,
+                'actor_id' => $request->user()->id,
+                'subject_type' => 'user',
+                'subject_id' => $contractor->id,
+                'action' => 'contractor.deleted',
+                'before' => ['name' => $contractor->name, 'type' => $contractor->type],
+                'context' => ['soft_deleted' => true],
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+            ]);
+        });
 
         return response()->noContent();
     }

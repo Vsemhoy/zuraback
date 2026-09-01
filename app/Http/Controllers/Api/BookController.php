@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\StoreBookRequest;
 use App\Http\Requests\Api\UpdateBookRequest;
 use App\Http\Resources\BookResource;
+use App\Models\ActivityLog;
 use App\Models\Book;
 use App\Models\Project;
 use App\Models\Scope;
@@ -14,6 +15,8 @@ use App\Services\ContractorAccessService;
 use App\Services\ContractorContext;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Http\Response;
+use Illuminate\Support\Facades\DB;
 
 class BookController extends Controller
 {
@@ -72,6 +75,34 @@ class BookController extends Controller
         $book->update($data);
 
         return new BookResource($book->fresh()->load('project:id,title,key,color')->loadCount('pages'));
+    }
+
+    public function destroy(Request $request, Scope $scope, Book $book): Response
+    {
+        abort_unless($book->scope_id === $scope->id, 404);
+        $actor = $this->context->actor($request);
+        $book->load('project');
+        abort_unless($this->access->canAccessBook($actor, $scope, $book), 403);
+        abort_unless($this->access->allows($actor, $scope, 'book.delete', $book->project), 403, 'The book.delete capability is required.');
+
+        DB::transaction(function () use ($request, $scope, $book): void {
+            $pageCount = $book->pages()->count();
+            $book->pages()->update(['editing_by' => null, 'editing_started_at' => null]);
+            $book->delete();
+            ActivityLog::query()->create([
+                'scope_id' => $scope->id,
+                'actor_id' => $this->context->actor($request)->id,
+                'subject_type' => 'book',
+                'subject_id' => $book->id,
+                'action' => 'book.deleted',
+                'before' => ['title' => $book->title, 'pages' => $pageCount],
+                'context' => ['soft_deleted' => true, ...$this->context->auditMetadata($request)],
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+            ]);
+        });
+
+        return response()->noContent();
     }
 
     private function assertProject(Scope $scope, ?string $projectId, User $actor): void

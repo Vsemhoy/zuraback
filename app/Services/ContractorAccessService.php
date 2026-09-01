@@ -14,14 +14,18 @@ class ContractorAccessService
 {
     public const ABILITIES = [
         'contractor.manage',
+        'contractor.delete',
         'agent.manage_own',
         'task.view',
         'task.create',
         'task.update',
+        'task.delete',
         'task.assign',
         'book.view',
         'book.create',
         'book.update',
+        'book.delete',
+        'project.delete',
         'report.view',
         'report.write',
     ];

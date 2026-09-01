@@ -18,6 +18,7 @@ use App\Services\ContractorContext;
 use App\Services\TaskKeyService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 
 class TaskController extends Controller
@@ -232,6 +233,38 @@ class TaskController extends Controller
         });
 
         return new TaskResource($task->fresh()->load(['project:id,title,key,color', 'kpi:id,name,kind,points,minimum_completed_tasks', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type']));
+    }
+
+    public function destroy(Request $request, Scope $scope, Task $task): Response
+    {
+        abort_unless($task->scope_id === $scope->id, 404);
+        $actor = $this->context->actor($request);
+        $project = $task->project_id ? Project::query()->find($task->project_id) : null;
+        abort_if($project === null && ! $this->access->canAccessUnprojected($actor, $scope), 403);
+        abort_unless($this->access->allows($actor, $scope, 'task.delete', $project), 403, 'The task.delete capability is required.');
+
+        DB::transaction(function () use ($request, $scope, $task): void {
+            $task->children()->update(['parent_id' => null]);
+            $task->plannerTails()->delete();
+            EntityLink::query()->where(function ($query) use ($task): void {
+                $query->where(fn ($side) => $side->where('source_type', $task->getMorphClass())->where('source_id', $task->id))
+                    ->orWhere(fn ($side) => $side->where('target_type', $task->getMorphClass())->where('target_id', $task->id));
+            })->delete();
+            $task->delete();
+            ActivityLog::query()->create([
+                'scope_id' => $scope->id,
+                'actor_id' => $this->context->actor($request)->id,
+                'subject_type' => $task->getMorphClass(),
+                'subject_id' => $task->id,
+                'action' => 'task.deleted',
+                'before' => $task->only(['task_key', 'title', 'project_id', 'assignee_id', 'status']),
+                'context' => ['soft_deleted' => true, ...$this->context->auditMetadata($request)],
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+            ]);
+        });
+
+        return response()->noContent();
     }
 
     /** @param array<string, mixed> $data */
