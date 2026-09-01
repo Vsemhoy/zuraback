@@ -15,6 +15,43 @@ class TaskerApiTest extends TestCase
 
     private const HEADERS = ['Accept' => 'application/json', 'Content-Type' => 'application/json', 'X-App-Request' => 'Zuratax'];
 
+    public function test_projects_are_colored_and_returned_in_configured_order(): void
+    {
+        [$user, $scope] = $this->workspace();
+
+        $second = $this->actingAs($user)->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/projects", [
+                'title' => 'Second project', 'key' => 'SEC', 'color' => '#D97706', 'sort_order' => 20,
+            ])->assertCreated()->assertJsonPath('data.color', '#D97706')->json('data');
+        $first = $this->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/projects", [
+                'title' => 'First project', 'key' => 'FST', 'sort_order' => 10,
+            ])->assertCreated()->assertJsonPath('data.color', '#2668D8')->json('data');
+
+        $this->withHeaders(self::HEADERS)
+            ->getJson("/api/scopes/{$scope->id}/projects")
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $first['id'])
+            ->assertJsonPath('data.1.id', $second['id']);
+        $this->withHeaders(self::HEADERS)
+            ->patchJson("/api/scopes/{$scope->id}/projects/{$first['id']}", ['color' => '#16A34A'])
+            ->assertOk()->assertJsonPath('data.color', '#16A34A');
+
+        $this->assertDatabaseHas('projects', ['id' => $first['id'], 'color' => '#16A34A']);
+    }
+
+    public function test_project_color_returns_422_for_invalid_hex_value(): void
+    {
+        [$user, $scope] = $this->workspace();
+
+        $this->actingAs($user)->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/projects", [
+                'title' => 'Bad color', 'key' => 'BAD', 'color' => 'red',
+            ])->assertUnprocessable()->assertJsonValidationErrors('color');
+
+        $this->assertDatabaseMissing('projects', ['scope_id' => $scope->id, 'key' => 'BAD']);
+    }
+
     public function test_project_and_scope_task_keys_are_allocated_sequentially(): void
     {
         [$user, $scope] = $this->workspace();
@@ -25,7 +62,8 @@ class TaskerApiTest extends TestCase
 
         $this->withHeaders(self::HEADERS)
             ->postJson("/api/scopes/{$scope->id}/tasks", ['project_id' => $project['id'], 'title' => 'First'])
-            ->assertCreated()->assertJsonPath('data.task_key', 'ADM-1')->assertJsonPath('data.number', 1);
+            ->assertCreated()->assertJsonPath('data.task_key', 'ADM-1')->assertJsonPath('data.number', 1)
+            ->assertJsonPath('data.project.color', '#2668D8');
 
         $this->withHeaders(self::HEADERS)
             ->postJson("/api/scopes/{$scope->id}/tasks", ['project_id' => $project['id'], 'title' => 'Second'])
@@ -34,6 +72,10 @@ class TaskerApiTest extends TestCase
         $this->withHeaders(self::HEADERS)
             ->postJson("/api/scopes/{$scope->id}/tasks", ['title' => 'Unprojected'])
             ->assertCreated()->assertJsonPath('data.task_key', 'TSK-1');
+
+        $this->withHeaders(self::HEADERS)
+            ->getJson("/api/scopes/{$scope->id}/tasks")
+            ->assertOk()->assertJsonPath('data.0.project.color', '#2668D8');
     }
 
     public function test_checklist_completion_is_timestamped_and_reopening_is_audited(): void
@@ -123,6 +165,21 @@ class TaskerApiTest extends TestCase
             ->patchJson("/api/scopes/{$scope->id}/tasks/{$first['id']}/move", ['status' => 'done', 'target_index' => 0])
             ->assertUnprocessable();
         $this->assertNotNull($blocker['id']);
+    }
+
+    public function test_task_can_be_scheduled_and_moved_to_deleted_column(): void
+    {
+        [$user, $scope] = $this->workspace();
+        $task = $this->actingAs($user)->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/tasks", ['title' => 'Prepare maintenance', 'status' => 'scheduled'])
+            ->assertCreated()->assertJsonPath('data.status', 'scheduled')->json('data');
+
+        $this->withHeaders(self::HEADERS)
+            ->patchJson("/api/scopes/{$scope->id}/tasks/{$task['id']}/move", ['status' => 'cancelled', 'target_index' => 0])
+            ->assertOk()->assertJsonPath('data.status', 'cancelled');
+
+        $this->assertDatabaseHas('tasks', ['id' => $task['id'], 'status' => 'cancelled']);
+        $this->assertDatabaseHas('activity_logs', ['subject_id' => $task['id'], 'action' => 'task.moved']);
     }
 
     public function test_checklist_item_can_be_converted_and_subtask_can_be_detached(): void

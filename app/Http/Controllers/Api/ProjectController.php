@@ -17,7 +17,9 @@ class ProjectController extends Controller
      */
     public function index(Scope $scope): AnonymousResourceCollection
     {
-        return ProjectResource::collection($scope->projects()->latest()->paginate());
+        return ProjectResource::collection(
+            $scope->projects()->orderBy('sort_order')->orderBy('title')->get()
+        );
     }
 
     /**
@@ -25,7 +27,9 @@ class ProjectController extends Controller
      */
     public function store(StoreProjectRequest $request, Scope $scope): ProjectResource
     {
-        $project = $scope->projects()->create([...$request->validated(), 'created_by' => $request->user()->id]);
+        $data = $request->validated();
+        $data['sort_order'] ??= ((int) $scope->projects()->max('sort_order')) + 1;
+        $project = $scope->projects()->create([...$data, 'created_by' => $request->user()->id]);
 
         return new ProjectResource($project);
     }

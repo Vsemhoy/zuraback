@@ -8,10 +8,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-#[Fillable(['scope_id', 'created_by', 'responsibility_area_id', 'title', 'key', 'next_task_number', 'description', 'result', 'status', 'priority', 'started_on', 'due_on', 'completed_at', 'is_pinned', 'sort_order', 'meta'])]
+#[Fillable(['scope_id', 'created_by', 'responsibility_area_id', 'title', 'key', 'next_task_number', 'description', 'result', 'status', 'priority', 'color', 'started_on', 'due_on', 'completed_at', 'is_pinned', 'sort_order', 'meta'])]
 class Project extends DomainModel
 {
     use HasEntityLinks, SoftDeletes;
+
+    protected $attributes = [
+        'color' => '#2668D8',
+    ];
 
     public function scope(): BelongsTo
     {

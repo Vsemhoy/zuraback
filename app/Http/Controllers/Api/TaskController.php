@@ -3,18 +3,18 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\MoveTaskRequest;
 use App\Http\Requests\Api\StoreTaskRequest;
 use App\Http\Requests\Api\UpdateTaskRequest;
-use App\Http\Requests\Api\MoveTaskRequest;
 use App\Http\Resources\TaskResource;
-use App\Models\Scope;
-use App\Models\Task;
-use App\Models\Project;
 use App\Models\ActivityLog;
 use App\Models\EntityLink;
+use App\Models\Project;
+use App\Models\Scope;
+use App\Models\Task;
 use App\Services\TaskKeyService;
-use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
 
 class TaskController extends Controller
@@ -24,7 +24,7 @@ class TaskController extends Controller
      */
     public function index(Scope $scope): AnonymousResourceCollection
     {
-        return TaskResource::collection($scope->tasks()->with(['project:id,title,key', 'assignee:id,name'])->orderBy('sort_order')->orderBy('created_at')->paginate());
+        return TaskResource::collection($scope->tasks()->with(['project:id,title,key,color', 'assignee:id,name'])->orderBy('sort_order')->orderBy('created_at')->paginate());
     }
 
     public function search(Request $request, Scope $scope): AnonymousResourceCollection
@@ -33,7 +33,7 @@ class TaskController extends Controller
         abort_if(mb_strlen($query) < 2, 422, 'Search query must contain at least two characters.');
 
         return TaskResource::collection($scope->tasks()
-            ->with(['project:id,title,key', 'assignee:id,name'])
+            ->with(['project:id,title,key,color', 'assignee:id,name'])
             ->where(fn ($builder) => $builder->where('task_key', 'like', strtoupper($query).'%')->orWhere('title', 'like', '%'.$query.'%'))
             ->limit(20)->get());
     }
@@ -58,7 +58,7 @@ class TaskController extends Controller
             return $scope->tasks()->create([...$data, ...$identity, 'created_by' => $request->user()->id]);
         });
 
-        return new TaskResource($task->load(['project:id,title,key', 'assignee:id,name']));
+        return new TaskResource($task->load(['project:id,title,key,color', 'assignee:id,name']));
     }
 
     /**
@@ -68,7 +68,7 @@ class TaskController extends Controller
     {
         abort_unless($task->scope_id === $scope->id, 404);
 
-        return new TaskResource($task->load(['project:id,title,key', 'assignee:id,name', 'checklistItems.assignee:id,name', 'checklistItems.completedBy:id,name', 'blockers.responsibleUser:id,name', 'blockers.blockedBy:id,name', 'blockers.resolvedBy:id,name', 'children:id,scope_id,project_id,parent_id,task_key,title,status,priority,due_at,assignee_id']));
+        return new TaskResource($task->load(['project:id,title,key,color', 'assignee:id,name', 'checklistItems.assignee:id,name', 'checklistItems.completedBy:id,name', 'blockers.responsibleUser:id,name', 'blockers.blockedBy:id,name', 'blockers.resolvedBy:id,name', 'children:id,scope_id,project_id,parent_id,task_key,title,status,priority,due_at,assignee_id']));
     }
 
     public function update(UpdateTaskRequest $request, Scope $scope, Task $task): TaskResource
@@ -97,7 +97,7 @@ class TaskController extends Controller
 
         $task->update($data);
 
-        return new TaskResource($task->fresh()->load(['project:id,title,key', 'assignee:id,name', 'checklistItems.assignee:id,name', 'checklistItems.completedBy:id,name', 'blockers.responsibleUser:id,name', 'blockers.blockedBy:id,name', 'blockers.resolvedBy:id,name', 'children:id,scope_id,project_id,parent_id,task_key,title,status,priority,due_at,assignee_id']));
+        return new TaskResource($task->fresh()->load(['project:id,title,key,color', 'assignee:id,name', 'checklistItems.assignee:id,name', 'checklistItems.completedBy:id,name', 'blockers.responsibleUser:id,name', 'blockers.blockedBy:id,name', 'blockers.resolvedBy:id,name', 'children:id,scope_id,project_id,parent_id,task_key,title,status,priority,due_at,assignee_id']));
     }
 
     public function move(MoveTaskRequest $request, Scope $scope, Task $task): TaskResource
@@ -121,7 +121,9 @@ class TaskController extends Controller
             $target->splice(min($targetIndex, $target->count()), 0, [$task]);
 
             if ($sourceStatus !== $targetStatus) {
-                foreach ($source as $index => $item) $item->update(['sort_order' => ($index + 1) * 1000]);
+                foreach ($source as $index => $item) {
+                    $item->update(['sort_order' => ($index + 1) * 1000]);
+                }
             }
             foreach ($target as $index => $item) {
                 $changes = ['sort_order' => ($index + 1) * 1000];
@@ -146,7 +148,7 @@ class TaskController extends Controller
             ]);
         });
 
-        return new TaskResource($task->fresh()->load(['project:id,title,key', 'assignee:id,name']));
+        return new TaskResource($task->fresh()->load(['project:id,title,key,color', 'assignee:id,name']));
     }
 
     public function detach(Request $request, Scope $scope, Task $task): TaskResource
@@ -172,7 +174,7 @@ class TaskController extends Controller
             ]);
         });
 
-        return new TaskResource($task->fresh()->load(['project:id,title,key', 'assignee:id,name']));
+        return new TaskResource($task->fresh()->load(['project:id,title,key,color', 'assignee:id,name']));
     }
 
     /** @param array<string, mixed> $data */

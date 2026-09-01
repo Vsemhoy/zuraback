@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Api;
 
 use Illuminate\Contracts\Validation\ValidationRule;
+
 class StoreTaskRequest extends WorkspaceRequest
 {
     /**
@@ -24,7 +25,7 @@ class StoreTaskRequest extends WorkspaceRequest
             'title' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
             'result' => ['nullable', 'string'],
-            'status' => ['sometimes', 'in:todo,in_progress,blocked,review,done,cancelled'],
+            'status' => ['sometimes', 'in:scheduled,todo,in_progress,blocked,review,done,cancelled'],
             'priority' => ['sometimes', 'integer', 'between:1,5'],
             'due_at' => ['nullable', 'date'],
             'counts_for_compensation' => ['sometimes', 'boolean'],

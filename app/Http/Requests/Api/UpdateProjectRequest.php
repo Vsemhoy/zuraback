@@ -15,6 +15,8 @@ class UpdateProjectRequest extends WorkspaceRequest
             'result' => ['sometimes', 'nullable', 'string'],
             'status' => ['sometimes', 'in:planning,active,on_hold,completed,archived'],
             'priority' => ['sometimes', 'integer', 'between:1,5'],
+            'color' => ['sometimes', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'sort_order' => ['sometimes', 'integer', 'min:0'],
             'started_on' => ['sometimes', 'nullable', 'date'],
             'due_on' => ['sometimes', 'nullable', 'date'],
             'responsibility_area_id' => ['sometimes', 'nullable', 'ulid'],

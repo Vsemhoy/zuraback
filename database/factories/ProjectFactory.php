@@ -25,6 +25,7 @@ class ProjectFactory extends Factory
             'title' => fake()->sentence(3),
             'key' => strtoupper(fake()->unique()->lexify('???')),
             'status' => 'planning',
+            'color' => '#2668D8',
         ];
     }
 }

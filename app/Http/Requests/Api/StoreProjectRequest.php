@@ -4,6 +4,7 @@ namespace App\Http\Requests\Api;
 
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Validation\Rule;
+
 class StoreProjectRequest extends WorkspaceRequest
 {
     protected function prepareForValidation(): void
@@ -27,6 +28,8 @@ class StoreProjectRequest extends WorkspaceRequest
             'description' => ['nullable', 'string'],
             'status' => ['sometimes', 'in:planning,active,on_hold,completed,archived'],
             'priority' => ['sometimes', 'integer', 'between:1,5'],
+            'color' => ['sometimes', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'sort_order' => ['sometimes', 'integer', 'min:0'],
             'started_on' => ['nullable', 'date'],
             'due_on' => ['nullable', 'date', 'after_or_equal:started_on'],
             'responsibility_area_id' => ['nullable', 'ulid'],
