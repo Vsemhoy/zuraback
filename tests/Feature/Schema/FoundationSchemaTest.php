@@ -30,7 +30,7 @@ class FoundationSchemaTest extends TestCase
             'book_pages', 'book_block_groups', 'book_blocks', 'event_types', 'event_sections',
             'events', 'responsibility_areas', 'compensation_periods', 'entity_links', 'tags',
             'taggables', 'comments', 'activity_logs', 'task_key_aliases', 'task_checklist_items',
-            'project_members', 'contractor_delegations',
+            'project_members', 'contractor_delegations', 'task_planner_tails',
         ];
 
         foreach ($tables as $table) {

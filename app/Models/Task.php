@@ -43,6 +43,11 @@ class Task extends DomainModel
         return $this->hasMany(TaskBlocker::class)->latest('blocked_at');
     }
 
+    public function plannerTails(): HasMany
+    {
+        return $this->hasMany(TaskPlannerTail::class);
+    }
+
     public function keyAliases(): HasMany
     {
         return $this->hasMany(TaskKeyAlias::class);

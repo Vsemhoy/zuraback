@@ -37,6 +37,11 @@ class Scope extends DomainModel
         return $this->hasMany(Task::class);
     }
 
+    public function taskPlannerTails(): HasMany
+    {
+        return $this->hasMany(TaskPlannerTail::class);
+    }
+
     public function facts(): HasMany
     {
         return $this->hasMany(Fact::class);
