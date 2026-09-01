@@ -72,9 +72,9 @@ class Scope extends DomainModel
         return $this->hasMany(Event::class);
     }
 
-    public function responsibilityAreas(): HasMany
+    public function kpis(): HasMany
     {
-        return $this->hasMany(ResponsibilityArea::class);
+        return $this->hasMany(Kpi::class);
     }
 
     public function entityLinks(): HasMany

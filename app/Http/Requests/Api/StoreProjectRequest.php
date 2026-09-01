@@ -32,7 +32,6 @@ class StoreProjectRequest extends WorkspaceRequest
             'sort_order' => ['sometimes', 'integer', 'min:0'],
             'started_on' => ['nullable', 'date'],
             'due_on' => ['nullable', 'date', 'after_or_equal:started_on'],
-            'responsibility_area_id' => ['nullable', 'ulid'],
         ];
     }
 }

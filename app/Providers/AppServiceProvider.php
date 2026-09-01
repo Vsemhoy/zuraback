@@ -8,8 +8,8 @@ use App\Models\BookPage;
 use App\Models\Event;
 use App\Models\EventSection;
 use App\Models\Fact;
+use App\Models\Kpi;
 use App\Models\Project;
-use App\Models\ResponsibilityArea;
 use App\Models\Task;
 use App\Models\TaskChecklistItem;
 use App\Models\User;
@@ -46,7 +46,7 @@ class AppServiceProvider extends ServiceProvider
             'event_section' => EventSection::class,
             'fact' => Fact::class,
             'project' => Project::class,
-            'responsibility_area' => ResponsibilityArea::class,
+            'kpi' => Kpi::class,
             'task' => Task::class,
             'task_checklist_item' => TaskChecklistItem::class,
             'user' => User::class,

@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Api;
 
 use Illuminate\Contracts\Validation\ValidationRule;
+
 class StoreEntityLinkRequest extends WorkspaceRequest
 {
     /**
@@ -17,9 +18,9 @@ class StoreEntityLinkRequest extends WorkspaceRequest
     public function rules(): array
     {
         return [
-            'source_type' => ['required', 'in:book,book_block_group,book_page,event,event_section,fact,project,responsibility_area,task'],
+            'source_type' => ['required', 'in:book,book_block_group,book_page,event,event_section,fact,kpi,project,task'],
             'source_id' => ['required', 'ulid'],
-            'target_type' => ['required', 'in:book,book_block_group,book_page,event,event_section,fact,project,responsibility_area,task'],
+            'target_type' => ['required', 'in:book,book_block_group,book_page,event,event_section,fact,kpi,project,task'],
             'target_id' => ['required', 'ulid', 'different:source_id'],
             'relation' => ['sometimes', 'string', 'max:32'],
             'note' => ['nullable', 'string'],

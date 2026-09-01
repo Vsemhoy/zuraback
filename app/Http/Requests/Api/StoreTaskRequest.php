@@ -24,14 +24,13 @@ class StoreTaskRequest extends WorkspaceRequest
             'customer_id' => ['nullable', 'ulid'],
             'is_agent_delegatable' => ['sometimes', 'boolean'],
             'delegated_agent_id' => ['nullable', 'ulid'],
-            'responsibility_area_id' => ['nullable', 'ulid'],
+            'kpi_id' => ['nullable', 'ulid'],
             'title' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
             'result' => ['nullable', 'string'],
             'status' => ['sometimes', 'in:scheduled,todo,in_progress,blocked,review,done,cancelled'],
             'priority' => ['sometimes', 'integer', 'between:1,5'],
             'due_at' => ['nullable', 'date'],
-            'counts_for_compensation' => ['sometimes', 'boolean'],
         ];
     }
 }

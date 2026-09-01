@@ -19,7 +19,6 @@ class UpdateProjectRequest extends WorkspaceRequest
             'sort_order' => ['sometimes', 'integer', 'min:0'],
             'started_on' => ['sometimes', 'nullable', 'date'],
             'due_on' => ['sometimes', 'nullable', 'date'],
-            'responsibility_area_id' => ['sometimes', 'nullable', 'ulid'],
         ];
     }
 }

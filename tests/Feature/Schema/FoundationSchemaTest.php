@@ -28,7 +28,7 @@ class FoundationSchemaTest extends TestCase
         $tables = [
             'scopes', 'scope_members', 'projects', 'tasks', 'facts', 'book_spaces', 'books',
             'book_pages', 'book_block_groups', 'book_blocks', 'event_types', 'event_sections',
-            'events', 'responsibility_areas', 'compensation_periods', 'entity_links', 'tags',
+            'events', 'kpis', 'entity_links', 'tags',
             'taggables', 'comments', 'activity_logs', 'task_key_aliases', 'task_checklist_items',
             'project_members', 'contractor_delegations', 'task_planner_tails',
         ];
@@ -36,6 +36,10 @@ class FoundationSchemaTest extends TestCase
         foreach ($tables as $table) {
             $this->assertTrue(Schema::hasTable($table), "Missing table: {$table}");
         }
+        $this->assertFalse(Schema::hasTable('responsibility_areas'));
+        $this->assertFalse(Schema::hasTable('compensation_periods'));
+        $this->assertTrue(Schema::hasColumn('tasks', 'kpi_id'));
+        $this->assertFalse(Schema::hasColumn('tasks', 'responsibility_area_id'));
     }
 
     public function test_booker_keeps_versioned_drawing_and_svg_payloads(): void

@@ -122,7 +122,7 @@ class TaskPlannerController extends Controller
             $project = $task->project_id ? Project::query()->findOrFail($task->project_id) : null;
             $identity = $keys->reserve($scope, $project);
             $copy = $scope->tasks()->create([
-                ...$task->only(['project_id', 'assignee_id', 'is_agent_delegatable', 'delegated_agent_id', 'responsibility_area_id', 'title', 'description', 'result', 'status', 'priority', 'counts_for_compensation']),
+                ...$task->only(['project_id', 'assignee_id', 'is_agent_delegatable', 'delegated_agent_id', 'kpi_id', 'title', 'description', 'result', 'status', 'priority']),
                 ...$identity,
                 'due_at' => $data['planned_on'].' 12:00:00',
                 'completed_at' => null,

@@ -2,30 +2,28 @@
 
 namespace Database\Factories;
 
-use App\Models\ResponsibilityArea;
+use App\Models\Kpi;
 use App\Models\Scope;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
-/**
- * @extends Factory<ResponsibilityArea>
- */
-class ResponsibilityAreaFactory extends Factory
+/** @extends Factory<Kpi> */
+class KpiFactory extends Factory
 {
-    /**
-     * Define the model's default state.
-     *
-     * @return array<string, mixed>
-     */
+    protected $model = Kpi::class;
+
     public function definition(): array
     {
         return [
             'scope_id' => Scope::factory(),
             'created_by' => User::factory(),
             'name' => fake()->sentence(3),
+            'description' => fake()->sentence(),
             'kind' => 'bonus',
-            'points' => 15,
+            'points' => 10,
             'minimum_completed_tasks' => 1,
+            'is_active' => true,
+            'sort_order' => 0,
         ];
     }
 }
