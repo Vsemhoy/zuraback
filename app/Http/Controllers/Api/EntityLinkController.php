@@ -8,7 +8,9 @@ use App\Http\Resources\EntityLinkResource;
 use App\Models\Book;
 use App\Models\BookPage;
 use App\Models\EntityLink;
+use App\Models\Project;
 use App\Models\Scope;
+use App\Models\Task;
 use App\Services\ContractorAccessService;
 use App\Services\ContractorContext;
 use Illuminate\Database\Eloquent\Relations\Relation;
@@ -50,6 +52,13 @@ class EntityLinkController extends Controller
             $book = $entity instanceof Book ? $entity : ($entity instanceof BookPage ? $entity->book : null);
             if ($book !== null) {
                 abort_unless($this->access->canAccessBook($this->context->actor($request), $scope, $book->loadMissing('project')), 403, 'This book is outside the contractor access boundary.');
+            }
+            $project = $entity instanceof Project ? $entity : ($entity instanceof Task ? $entity->project : null);
+            if ($project !== null) {
+                abort_unless($this->access->allows($this->context->actor($request), $scope, 'task.view', $project), 403, 'This entity is outside the contractor project boundary.');
+            }
+            if ($entity instanceof Task && $entity->project_id === null) {
+                abort_unless($this->access->canAccessUnprojected($this->context->actor($request), $scope), 403, 'Unprojected tasks are outside the contractor access boundary.');
             }
         }
         $link = $scope->entityLinks()->create([...$data, 'created_by' => $request->user()->id]);

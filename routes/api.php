@@ -2,6 +2,8 @@
 
 use App\Http\Controllers\Api\AgentTaskController;
 use App\Http\Controllers\Api\AgentSpecificationController;
+use App\Http\Controllers\Api\EntityLinkController;
+use App\Http\Controllers\Api\FactController;
 use App\Http\Controllers\Api\ProjectController;
 use App\Http\Controllers\Api\ScopeController;
 use App\Http\Controllers\Api\TaskController;
@@ -22,6 +24,8 @@ Route::prefix('agent')->middleware(['auth:sanctum', 'active', 'agent'])->group(f
 
     Route::prefix('/scopes/{scope}')->middleware('scope.member')->group(function (): void {
         Route::get('/projects', [ProjectController::class, 'index'])->middleware('scope.ability:task.view');
+        Route::post('/facts', [FactController::class, 'store'])->middleware('scope.ability:task.create');
+        Route::post('/links', [EntityLinkController::class, 'store'])->middleware('scope.ability:task.update');
         Route::get('/tasks', [TaskController::class, 'index'])->middleware('scope.ability:task.view');
         Route::post('/tasks', [TaskController::class, 'store'])->middleware('scope.ability:task.create');
         Route::get('/tasks/search', [TaskController::class, 'search'])->middleware('scope.ability:task.view');
