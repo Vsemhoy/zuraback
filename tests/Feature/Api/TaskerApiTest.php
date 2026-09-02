@@ -15,6 +15,62 @@ class TaskerApiTest extends TestCase
 
     private const HEADERS = ['Accept' => 'application/json', 'Content-Type' => 'application/json', 'X-App-Request' => 'Zuratax'];
 
+    public function test_private_projects_and_their_tasks_are_hidden_from_scope_colleagues(): void
+    {
+        [$owner, $scope] = $this->workspace();
+        $colleague = User::factory()->create();
+        $scope->members()->create([
+            'user_id' => $colleague->id,
+            'role' => 'member',
+            'project_access_mode' => 'all',
+            'joined_at' => now(),
+        ]);
+
+        $private = $this->actingAs($owner)->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/projects", ['title' => 'Personal', 'key' => 'PER'])
+            ->assertCreated()
+            ->assertJsonPath('data.visibility', 'private')
+            ->assertJsonPath('data.creator.id', $owner->id)
+            ->json('data');
+        $shared = $this->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/projects", ['title' => 'Shared', 'key' => 'SHR', 'visibility' => 'scope'])
+            ->assertCreated()
+            ->json('data');
+
+        $this->withHeaders(self::HEADERS)->postJson("/api/scopes/{$scope->id}/tasks", [
+            'project_id' => $private['id'], 'title' => 'Private task',
+        ])->assertCreated();
+        $this->withHeaders(self::HEADERS)->postJson("/api/scopes/{$scope->id}/tasks", [
+            'project_id' => $shared['id'], 'title' => 'Shared task',
+        ])->assertCreated();
+
+        $this->actingAs($colleague)->withHeaders(self::HEADERS)
+            ->getJson("/api/scopes/{$scope->id}/projects")
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $shared['id']);
+        $this->withHeaders(self::HEADERS)
+            ->getJson("/api/scopes/{$scope->id}/tasks")
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.title', 'Shared task');
+        $this->withHeaders(self::HEADERS)
+            ->getJson("/api/scopes/{$scope->id}/projects/{$private['id']}")
+            ->assertNotFound();
+    }
+
+    public function test_projects_can_be_reordered_for_every_project_list(): void
+    {
+        [$user, $scope] = $this->workspace();
+        $first = $scope->projects()->create(['created_by' => $user->id, 'title' => 'First', 'key' => 'FST']);
+        $second = $scope->projects()->create(['created_by' => $user->id, 'title' => 'Second', 'key' => 'SEC']);
+
+        $this->actingAs($user)->withHeaders(self::HEADERS)
+            ->patchJson("/api/scopes/{$scope->id}/projects/reorder", ['project_ids' => [$second->id, $first->id]])
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $second->id)
+            ->assertJsonPath('data.1.id', $first->id);
+
+        $this->assertDatabaseHas('projects', ['id' => $second->id, 'sort_order' => 1000]);
+        $this->assertDatabaseHas('projects', ['id' => $first->id, 'sort_order' => 2000]);
+    }
+
     public function test_projects_are_colored_and_returned_in_configured_order(): void
     {
         [$user, $scope] = $this->workspace();

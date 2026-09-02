@@ -29,6 +29,7 @@ class StoreProjectRequest extends WorkspaceRequest
             'status' => ['sometimes', 'in:planning,active,on_hold,completed,archived'],
             'priority' => ['sometimes', 'integer', 'between:1,5'],
             'color' => ['sometimes', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'visibility' => ['sometimes', 'in:private,scope'],
             'sort_order' => ['sometimes', 'integer', 'min:0'],
             'started_on' => ['nullable', 'date'],
             'due_on' => ['nullable', 'date', 'after_or_equal:started_on'],

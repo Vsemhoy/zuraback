@@ -60,6 +60,7 @@ Route::prefix('api')->middleware(['spa.request', 'auth', 'active'])->group(funct
         Route::post('/contractors/{contractor}/act', [ContractorController::class, 'act'])->whereUlid('contractor')->middleware('scope.ability:contractor.manage');
         Route::get('/projects', [ProjectController::class, 'index'])->middleware(['scope.actor', 'scope.ability:task.view']);
         Route::post('/projects', [ProjectController::class, 'store'])->middleware(['scope.actor', 'scope.ability:task.create']);
+        Route::patch('/projects/reorder', [ProjectController::class, 'reorder'])->middleware(['scope.actor', 'scope.ability:task.update']);
         Route::get('/projects/{project}', [ProjectController::class, 'show'])->middleware(['scope.actor', 'scope.ability:task.view']);
         Route::patch('/projects/{project}', [ProjectController::class, 'update'])->middleware(['scope.actor', 'scope.ability:task.update']);
         Route::delete('/projects/{project}', [ProjectController::class, 'destroy'])->middleware(['scope.actor', 'scope.ability:project.delete']);

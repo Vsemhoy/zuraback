@@ -29,6 +29,7 @@ Route::prefix('agent')->middleware(['auth:sanctum', 'active', 'agent'])->group(f
         Route::get('/contractors/assignable', [ContractorController::class, 'assignable'])->middleware('scope.ability:task.view');
         Route::get('/projects', [ProjectController::class, 'index'])->middleware('scope.ability:task.view');
         Route::post('/projects', [ProjectController::class, 'store'])->middleware('scope.ability:task.create');
+        Route::patch('/projects/reorder', [ProjectController::class, 'reorder'])->middleware('scope.ability:task.update');
         Route::get('/projects/{project}', [ProjectController::class, 'show'])->middleware('scope.ability:task.view');
         Route::patch('/projects/{project}', [ProjectController::class, 'update'])->middleware('scope.ability:task.update');
         Route::post('/facts', [FactController::class, 'store'])->middleware('scope.ability:task.create');

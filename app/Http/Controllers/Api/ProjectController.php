@@ -31,7 +31,7 @@ class ProjectController extends Controller
         $query = $this->access->constrainProjects($scope->projects()->getQuery(), $this->context->actor($request), $scope);
 
         return ProjectResource::collection(
-            $query->withCount(['tasks', 'books'])->orderBy('sort_order')->orderBy('title')->get()
+            $query->with('creator:id,name,username')->withCount(['tasks', 'books'])->orderBy('sort_order')->orderBy('title')->get()
         );
     }
 
@@ -45,10 +45,11 @@ class ProjectController extends Controller
             abort_unless($this->access->canAccessUnprojected($actor, $scope), 403, 'Creating projects requires all-project access in the scope.');
         }
         $data = $request->validated();
+        $data['visibility'] ??= 'private';
         $data['sort_order'] ??= ((int) $scope->projects()->max('sort_order')) + 1;
         $project = $scope->projects()->create([...$data, 'created_by' => $actor->id]);
 
-        return new ProjectResource($project->loadCount(['tasks', 'books']));
+        return new ProjectResource($project->load('creator:id,name,username')->loadCount(['tasks', 'books']));
     }
 
     /**
@@ -58,15 +59,44 @@ class ProjectController extends Controller
     {
         abort_unless($this->access->canAccessProject($this->context->actor($request), $scope, $project), 404);
 
-        return new ProjectResource($project->load('books:id,scope_id,project_id,title')->loadCount(['tasks', 'books']));
+        return new ProjectResource($project->load(['books:id,scope_id,project_id,title', 'creator:id,name,username'])->loadCount(['tasks', 'books']));
     }
 
     public function update(UpdateProjectRequest $request, Scope $scope, Project $project): ProjectResource
     {
-        abort_unless($this->access->canAccessProject($this->context->actor($request), $scope, $project, 'task.update'), 404);
-        $project->update($request->validated());
+        $actor = $this->context->actor($request);
+        abort_unless($this->access->canAccessProject($actor, $scope, $project, 'task.update'), 404);
+        $data = $request->validated();
+        if (array_key_exists('visibility', $data) && $data['visibility'] !== $project->visibility) {
+            abort_unless($project->created_by === $actor->id || $scope->owner_id === $actor->id, 403, 'Only the project creator or scope owner can change project privacy.');
+        }
+        $project->update($data);
 
-        return new ProjectResource($project->fresh()->load('books:id,scope_id,project_id,title')->loadCount(['tasks', 'books']));
+        return new ProjectResource($project->fresh()->load(['books:id,scope_id,project_id,title', 'creator:id,name,username'])->loadCount(['tasks', 'books']));
+    }
+
+    public function reorder(Request $request, Scope $scope): AnonymousResourceCollection
+    {
+        $data = $request->validate([
+            'project_ids' => ['required', 'array'],
+            'project_ids.*' => ['required', 'ulid', 'distinct'],
+        ]);
+        $actor = $this->context->actor($request);
+        $projects = $this->access->constrainProjects(
+            $scope->projects()->getQuery()->whereIn('id', $data['project_ids']),
+            $actor,
+            $scope,
+        )->get()->keyBy('id');
+
+        abort_unless($projects->count() === count($data['project_ids']), 404);
+
+        DB::transaction(function () use ($data, $projects): void {
+            foreach ($data['project_ids'] as $index => $projectId) {
+                $projects->get($projectId)->update(['sort_order' => ($index + 1) * 1000]);
+            }
+        });
+
+        return $this->index($request, $scope);
     }
 
     public function destroy(Request $request, Scope $scope, Project $project): Response

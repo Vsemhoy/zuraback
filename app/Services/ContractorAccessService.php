@@ -68,6 +68,10 @@ class ContractorAccessService
             return false;
         }
 
+        if ($project->created_by === $user->id) {
+            return true;
+        }
+
         if ($membership->project_access_mode === 'all') {
             return true;
         }
@@ -104,6 +108,7 @@ class ContractorAccessService
     public function canAccessProject(User $user, Scope $scope, Project $project, string $ability = 'task.view'): bool
     {
         return $project->scope_id === $scope->id
+            && ($project->visibility !== 'private' || $project->created_by === $user->id || $scope->owner_id === $user->id)
             && $this->allows($user, $scope, $ability, $project);
     }
 
@@ -160,12 +165,16 @@ class ContractorAccessService
         }
 
         if ($membership->project_access_mode === 'restricted') {
-            return $query->whereHas('members', fn (Builder $members): Builder => $members
-                ->where('user_id', $user->id)
-                ->where('is_active', true));
+            $query->where(fn (Builder $projects): Builder => $projects
+                ->where('created_by', $user->id)
+                ->orWhereHas('members', fn (Builder $members): Builder => $members
+                    ->where('user_id', $user->id)
+                    ->where('is_active', true)));
         }
 
-        return $query;
+        return $query->where(fn (Builder $projects): Builder => $projects
+            ->where('visibility', '!=', 'private')
+            ->orWhere('created_by', $user->id));
     }
 
     /** @param Builder<Task> $query */
@@ -182,12 +191,18 @@ class ContractorAccessService
         }
 
         if ($membership->project_access_mode === 'restricted') {
-            return $query->whereHas('project.members', fn (Builder $members): Builder => $members
-                ->where('user_id', $user->id)
-                ->where('is_active', true));
+            $query->whereHas('project', fn (Builder $projects): Builder => $projects
+                ->where('created_by', $user->id)
+                ->orWhereHas('members', fn (Builder $members): Builder => $members
+                    ->where('user_id', $user->id)
+                    ->where('is_active', true)));
         }
 
-        return $query;
+        return $query->where(fn (Builder $tasks): Builder => $tasks
+            ->whereNull('project_id')
+            ->orWhereHas('project', fn (Builder $projects): Builder => $projects
+                ->where('visibility', '!=', 'private')
+                ->orWhere('created_by', $user->id)));
     }
 
     public function canAccessBook(User $user, Scope $scope, Book $book): bool
@@ -208,7 +223,7 @@ class ContractorAccessService
         }
 
         return $membership?->book_access_mode === 'all'
-            || ($book->project_id !== null && $this->allows($user, $scope, 'task.view', $book->project));
+            || ($book->project_id !== null && $this->canAccessProject($user, $scope, $book->project));
     }
 
     /** @param Builder<Book> $query */
@@ -224,11 +239,17 @@ class ContractorAccessService
         if ($membership->book_access_mode === 'projects') {
             if ($membership->project_access_mode === 'all') {
                 $query->where(fn (Builder $books): Builder => $books
-                    ->whereNotNull('project_id')
+                    ->whereHas('project', fn (Builder $projects): Builder => $projects
+                        ->where('visibility', '!=', 'private')
+                        ->orWhere('created_by', $user->id))
                     ->orWhereIn('visibility', ['scope', 'public']));
             } elseif ($membership->project_access_mode === 'restricted') {
                 $query->whereNotNull('project_id');
-                $query->whereHas('project.members', fn (Builder $members): Builder => $members->where('user_id', $user->id)->where('is_active', true));
+                $query->whereHas('project', fn (Builder $projects): Builder => $projects
+                    ->where(fn (Builder $visible): Builder => $visible
+                        ->where('visibility', '!=', 'private')
+                        ->orWhere('created_by', $user->id))
+                    ->whereHas('members', fn (Builder $members): Builder => $members->where('user_id', $user->id)->where('is_active', true)));
             } else {
                 $query->whereRaw('1 = 0');
             }
