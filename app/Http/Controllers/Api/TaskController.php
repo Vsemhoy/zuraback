@@ -63,6 +63,9 @@ class TaskController extends Controller
         $data = $request->validated();
         $this->normalizeAgentDelegation($data);
         $actor = $this->context->actor($request);
+        if (empty($data['assignee_id']) && $actor->is_executor) {
+            $data['assignee_id'] = $actor->id;
+        }
         $this->assertReferencesBelongToScope($scope, $data, $actor);
         abort_if(! isset($data['project_id']) && ! $this->access->canAccessUnprojected($actor, $scope), 403, 'Unprojected tasks are outside the contractor access boundary.');
         $this->assertCanAssign($scope, $data, $actor);
@@ -340,6 +343,14 @@ class TaskController extends Controller
     private function assertCanAssign(Scope $scope, array $data, User $actor, ?Project $fallbackProject = null): void
     {
         if (! array_key_exists('assignee_id', $data) && ! array_key_exists('delegated_agent_id', $data) && ! array_key_exists('is_agent_delegatable', $data)) {
+            return;
+        }
+
+        if (empty($data['assignee_id']) && empty($data['delegated_agent_id']) && empty($data['is_agent_delegatable'])) {
+            return;
+        }
+
+        if (($data['assignee_id'] ?? null) === $actor->id && empty($data['delegated_agent_id']) && empty($data['is_agent_delegatable'])) {
             return;
         }
 

@@ -24,6 +24,7 @@ class StoreBookRequest extends WorkspaceRequest
             'slug' => ['nullable', 'alpha_dash', 'max:160'],
             'description' => ['nullable', 'string'],
             'visibility' => ['sometimes', 'in:private,scope,public'],
+            'comments_enabled' => ['sometimes', 'boolean'],
             'cover_color' => ['nullable', 'string', 'max:24'],
             'cover_svg_url' => ['nullable', 'url'],
             'cover_svg_text' => ['nullable', 'string'],

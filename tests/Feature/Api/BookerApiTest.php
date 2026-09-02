@@ -119,4 +119,78 @@ class BookerApiTest extends TestCase
         $this->withHeaders(self::HEADERS)->postJson("/api/scopes/{$scope->id}/books/{$book->id}/pages/{$page->id}/versions/{$safetyVersionId}/restore")
             ->assertOk()->assertJsonPath('data.title', 'Changed')->assertJsonPath('data.groups.0.id', $group['id'])->assertJsonPath('data.groups.0.master_block.content', 'New content')->assertJsonPath('data.versions_count', 3);
     }
+
+    public function test_page_comments_can_be_created_replied_to_deleted_and_disabled(): void
+    {
+        $owner = User::factory()->create();
+        $colleague = User::factory()->create();
+        $scope = Scope::query()->create(['owner_id' => $owner->id, 'name' => 'Work', 'slug' => 'work']);
+        $scope->members()->create(['user_id' => $owner->id, 'role' => 'owner', 'joined_at' => now()]);
+        $scope->members()->create([
+            'user_id' => $colleague->id,
+            'role' => 'member',
+            'book_access_mode' => 'all',
+            'permissions' => ['allow' => ['book.view'], 'deny' => []],
+            'joined_at' => now(),
+        ]);
+        $book = $scope->books()->create(['created_by' => $owner->id, 'title' => 'Specifications', 'visibility' => 'scope']);
+        $page = $book->pages()->create(['created_by' => $owner->id, 'title' => 'API']);
+
+        $comment = $this->actingAs($colleague)->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/books/{$book->id}/pages/{$page->id}/comments", ['content' => 'Please clarify this block.'])
+            ->assertCreated()
+            ->assertJsonPath('data.created_by.id', $colleague->id)
+            ->assertJsonPath('data.page.id', $page->id)
+            ->json('data');
+
+        $reply = $this->actingAs($owner)->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/books/{$book->id}/pages/{$page->id}/comments", [
+                'content' => 'Clarified.',
+                'parent_id' => $comment['id'],
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.parent_id', $comment['id'])
+            ->json('data');
+
+        $this->getJson("/api/scopes/{$scope->id}/books/{$book->id}/pages/{$page->id}/comments")
+            ->assertOk()->assertJsonCount(2, 'data');
+        $this->getJson("/api/scopes/{$scope->id}/book-comments/recent")
+            ->assertOk()->assertJsonPath('data.0.id', $reply['id'])->assertJsonPath('data.0.page.book.id', $book->id);
+
+        $this->deleteJson("/api/scopes/{$scope->id}/books/{$book->id}/pages/{$page->id}/comments/{$comment['id']}")
+            ->assertNoContent();
+        $this->assertSoftDeleted('comments', ['id' => $comment['id']]);
+
+        $this->patchJson("/api/scopes/{$scope->id}/books/{$book->id}", ['comments_enabled' => false])
+            ->assertOk()->assertJsonPath('data.comments_enabled', false);
+        $this->actingAs($colleague)->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/books/{$book->id}/pages/{$page->id}/comments", ['content' => 'Should fail'])
+            ->assertForbidden();
+    }
+
+    public function test_book_stars_are_personal(): void
+    {
+        $owner = User::factory()->create();
+        $colleague = User::factory()->create();
+        $scope = Scope::query()->create(['owner_id' => $owner->id, 'name' => 'Work', 'slug' => 'work']);
+        $scope->members()->create(['user_id' => $owner->id, 'role' => 'owner', 'joined_at' => now()]);
+        $scope->members()->create([
+            'user_id' => $colleague->id,
+            'role' => 'member',
+            'book_access_mode' => 'all',
+            'permissions' => ['allow' => ['book.view'], 'deny' => []],
+            'joined_at' => now(),
+        ]);
+        $book = $scope->books()->create(['created_by' => $owner->id, 'title' => 'Favorite', 'visibility' => 'scope']);
+
+        $this->actingAs($owner)->withHeaders(self::HEADERS)
+            ->patchJson("/api/scopes/{$scope->id}/books/{$book->id}/star", ['starred' => true])
+            ->assertNoContent();
+        $this->getJson("/api/scopes/{$scope->id}/books")
+            ->assertOk()->assertJsonPath('data.0.is_starred', true);
+
+        $this->actingAs($colleague)->withHeaders(self::HEADERS)
+            ->getJson("/api/scopes/{$scope->id}/books")
+            ->assertOk()->assertJsonPath('data.0.is_starred', false);
+    }
 }

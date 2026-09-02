@@ -14,6 +14,9 @@ class BookResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
-        return parent::toArray($request);
+        return [
+            ...parent::toArray($request),
+            'is_starred' => (bool) ($this->resource->getAttribute('is_starred') ?? false),
+        ];
     }
 }

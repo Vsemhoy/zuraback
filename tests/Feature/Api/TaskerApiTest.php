@@ -180,6 +180,49 @@ class TaskerApiTest extends TestCase
         $this->assertDatabaseHas('activity_logs', ['subject_id' => $item['id'], 'action' => 'checklist_item.reopened']);
     }
 
+    public function test_executor_is_assigned_to_a_task_they_create_and_checklist_items_can_be_edited_and_deleted(): void
+    {
+        [$user, $scope] = $this->workspace();
+
+        $task = $this->actingAs($user)->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/tasks", ['title' => 'Prepare release', 'assignee_id' => null])
+            ->assertCreated()
+            ->assertJsonPath('data.assignee.id', $user->id)
+            ->json('data');
+
+        $item = $this->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/tasks/{$task['id']}/checklist", ['title' => 'Draft notes'])
+            ->assertCreated()
+            ->json('data');
+
+        $this->withHeaders(self::HEADERS)
+            ->patchJson("/api/scopes/{$scope->id}/tasks/{$task['id']}/checklist/{$item['id']}", [
+                'title' => 'Publish notes',
+                'assignee_id' => $user->id,
+                'due_at' => now()->addDay()->toIso8601String(),
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.title', 'Publish notes')
+            ->assertJsonPath('data.assignee.id', $user->id);
+
+        $this->withHeaders(self::HEADERS)
+            ->deleteJson("/api/scopes/{$scope->id}/tasks/{$task['id']}/checklist/{$item['id']}")
+            ->assertNoContent();
+
+        $this->assertDatabaseMissing('task_checklist_items', ['id' => $item['id']]);
+    }
+
+    public function test_non_executor_is_not_automatically_assigned_to_a_task(): void
+    {
+        [$user, $scope] = $this->workspace();
+        $user->update(['is_executor' => false]);
+
+        $this->actingAs($user)->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/tasks", ['title' => 'Manager task', 'assignee_id' => null])
+            ->assertCreated()
+            ->assertJsonPath('data.assignee', null);
+    }
+
     public function test_blocker_is_audited_restores_status_and_keeps_history(): void
     {
         [$user, $scope] = $this->workspace();

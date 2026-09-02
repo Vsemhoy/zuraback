@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\BookBlockGroupController;
 use App\Http\Controllers\Api\BookController;
+use App\Http\Controllers\Api\BookConversationController;
 use App\Http\Controllers\Api\BookPageController;
 use App\Http\Controllers\Api\BookPageEditingController;
 use App\Http\Controllers\Api\BookSpaceController;
@@ -106,6 +107,7 @@ Route::prefix('api')->middleware(['spa.request', 'auth', 'active'])->group(funct
         Route::get('/facts/{fact}', [FactController::class, 'show']);
         Route::patch('/facts/{fact}', [FactController::class, 'update']);
         Route::get('/books', [BookController::class, 'index'])->middleware(['scope.actor', 'book.access:book.view']);
+        Route::get('/book-comments/recent', [BookConversationController::class, 'recent'])->middleware(['scope.actor', 'book.access:book.view']);
         Route::get('/book-spaces', [BookSpaceController::class, 'index'])->middleware(['scope.actor', 'book.access:book.view']);
         Route::post('/book-spaces', [BookSpaceController::class, 'store'])->middleware(['scope.actor', 'book.access:book.create']);
         Route::patch('/book-spaces/reorder', [BookSpaceController::class, 'reorder'])->middleware(['scope.actor', 'book.access:book.update']);
@@ -114,11 +116,15 @@ Route::prefix('api')->middleware(['spa.request', 'auth', 'active'])->group(funct
         Route::post('/books', [BookController::class, 'store'])->middleware(['scope.actor', 'book.access:book.create']);
         Route::get('/books/{book}', [BookController::class, 'show'])->middleware(['scope.actor', 'book.access:book.view']);
         Route::patch('/books/{book}', [BookController::class, 'update'])->middleware(['scope.actor', 'book.access:book.update']);
+        Route::patch('/books/{book}/star', [BookController::class, 'star'])->middleware(['scope.actor', 'book.access:book.view']);
         Route::delete('/books/{book}', [BookController::class, 'destroy'])->middleware(['scope.actor', 'book.access:book.delete']);
         Route::get('/books/{book}/pages', [BookPageController::class, 'index'])->middleware(['scope.actor', 'book.access:book.view']);
         Route::post('/books/{book}/pages', [BookPageController::class, 'store'])->middleware(['scope.actor', 'book.access:book.update']);
         Route::get('/books/{book}/pages/{bookPage}', [BookPageController::class, 'show'])->middleware(['scope.actor', 'book.access:book.view']);
         Route::patch('/books/{book}/pages/{bookPage}', [BookPageController::class, 'update'])->middleware(['scope.actor', 'book.access:book.update']);
+        Route::get('/books/{book}/pages/{bookPage}/comments', [BookConversationController::class, 'comments'])->middleware(['scope.actor', 'book.access:book.view']);
+        Route::post('/books/{book}/pages/{bookPage}/comments', [BookConversationController::class, 'storeComment'])->middleware(['scope.actor', 'book.access:book.view']);
+        Route::delete('/books/{book}/pages/{bookPage}/comments/{comment}', [BookConversationController::class, 'destroy'])->middleware(['scope.actor', 'book.access:book.view']);
         Route::post('/books/{book}/pages/{bookPage}/editing', [BookPageEditingController::class, 'acquire'])->middleware(['scope.actor', 'book.access:book.update']);
         Route::delete('/books/{book}/pages/{bookPage}/editing', [BookPageEditingController::class, 'release'])->middleware(['scope.actor', 'book.access:book.update']);
         Route::post('/books/{book}/pages/{bookPage}/editing/cancel', [BookPageEditingController::class, 'cancel'])->middleware(['scope.actor', 'book.access:book.update']);

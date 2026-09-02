@@ -27,9 +27,13 @@ class BookController extends Controller
      */
     public function index(Request $request, Scope $scope): AnonymousResourceCollection
     {
-        $books = $this->access->constrainBooks($scope->books()->getQuery(), $this->context->actor($request), $scope);
+        $actor = $this->context->actor($request);
+        $books = $this->access->constrainBooks($scope->books()->getQuery(), $actor, $scope);
 
-        return BookResource::collection($books->with('project:id,title,key,color')->withCount('pages')->orderBy('sort_order')->orderBy('title')->get());
+        return BookResource::collection($books
+            ->with(['project:id,title,key,color', 'creator:id,name'])
+            ->withExists(['starredBy as is_starred' => fn ($query) => $query->whereKey($actor->id)])
+            ->withCount('pages')->orderBy('sort_order')->orderBy('title')->get());
     }
 
     /**
@@ -56,7 +60,9 @@ class BookController extends Controller
         abort_unless($book->scope_id === $scope->id, 404);
         abort_unless($this->access->canAccessBook($this->context->actor($request), $scope, $book->load('project')), 403);
 
-        return new BookResource($book->load('project:id,title,key,color')->loadCount('pages'));
+        $book->setAttribute('is_starred', $book->starredBy()->whereKey($this->context->actor($request)->id)->exists());
+
+        return new BookResource($book->load(['project:id,title,key,color', 'creator:id,name'])->loadCount('pages'));
     }
 
     public function update(UpdateBookRequest $request, Scope $scope, Book $book): BookResource
@@ -102,6 +108,22 @@ class BookController extends Controller
                 'user_agent' => $request->userAgent(),
             ]);
         });
+
+        return response()->noContent();
+    }
+
+    public function star(Request $request, Scope $scope, Book $book): Response
+    {
+        abort_unless($book->scope_id === $scope->id, 404);
+        $actor = $this->context->actor($request);
+        abort_unless($this->access->canAccessBook($actor, $scope, $book->loadMissing('project')), 403);
+        $data = $request->validate(['starred' => ['required', 'boolean']]);
+
+        if ($data['starred']) {
+            $book->starredBy()->syncWithoutDetaching([$actor->id]);
+        } else {
+            $book->starredBy()->detach($actor->id);
+        }
 
         return response()->noContent();
     }
