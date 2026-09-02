@@ -1,11 +1,14 @@
 <?php
 
-use App\Http\Controllers\Api\AgentTaskController;
 use App\Http\Controllers\Api\AgentSpecificationController;
+use App\Http\Controllers\Api\AgentTaskController;
+use App\Http\Controllers\Api\AgentTaskerImportController;
+use App\Http\Controllers\Api\ContractorController;
 use App\Http\Controllers\Api\EntityLinkController;
 use App\Http\Controllers\Api\FactController;
 use App\Http\Controllers\Api\ProjectController;
 use App\Http\Controllers\Api\ScopeController;
+use App\Http\Controllers\Api\TaskChecklistItemController;
 use App\Http\Controllers\Api\TaskController;
 use App\Http\Controllers\Api\TaskConversationController;
 use App\Http\Resources\UserResource;
@@ -23,14 +26,22 @@ Route::prefix('agent')->middleware(['auth:sanctum', 'active', 'agent'])->group(f
     Route::get('/scopes', [ScopeController::class, 'index']);
 
     Route::prefix('/scopes/{scope}')->middleware('scope.member')->group(function (): void {
+        Route::get('/contractors/assignable', [ContractorController::class, 'assignable'])->middleware('scope.ability:task.view');
         Route::get('/projects', [ProjectController::class, 'index'])->middleware('scope.ability:task.view');
+        Route::post('/projects', [ProjectController::class, 'store'])->middleware('scope.ability:task.create');
+        Route::get('/projects/{project}', [ProjectController::class, 'show'])->middleware('scope.ability:task.view');
+        Route::patch('/projects/{project}', [ProjectController::class, 'update'])->middleware('scope.ability:task.update');
         Route::post('/facts', [FactController::class, 'store'])->middleware('scope.ability:task.create');
         Route::post('/links', [EntityLinkController::class, 'store'])->middleware('scope.ability:task.update');
+        Route::post('/imports/tasker', [AgentTaskerImportController::class, 'store'])->middleware(['scope.ability:task.create', 'scope.ability:task.update']);
         Route::get('/tasks', [TaskController::class, 'index'])->middleware('scope.ability:task.view');
         Route::post('/tasks', [TaskController::class, 'store'])->middleware('scope.ability:task.create');
         Route::get('/tasks/search', [TaskController::class, 'search'])->middleware('scope.ability:task.view');
         Route::get('/tasks/{task}', [TaskController::class, 'show'])->middleware('scope.ability:task.view');
         Route::patch('/tasks/{task}', [TaskController::class, 'update'])->middleware('scope.ability:task.update');
+        Route::get('/tasks/{task}/checklist', [TaskChecklistItemController::class, 'index'])->middleware('scope.ability:task.view');
+        Route::post('/tasks/{task}/checklist', [TaskChecklistItemController::class, 'store'])->middleware('scope.ability:task.update');
+        Route::patch('/tasks/{task}/checklist/{item}', [TaskChecklistItemController::class, 'update'])->middleware('scope.ability:task.update');
         Route::get('/tasks/{task}/comments', [TaskConversationController::class, 'comments'])->middleware('scope.ability:task.view');
         Route::post('/tasks/{task}/comments', [TaskConversationController::class, 'storeComment'])->middleware('scope.ability:task.update');
         Route::get('/tasks/{task}/activity', [TaskConversationController::class, 'activity'])->middleware('scope.ability:task.view');

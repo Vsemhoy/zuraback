@@ -40,9 +40,13 @@ class ProjectController extends Controller
      */
     public function store(StoreProjectRequest $request, Scope $scope): ProjectResource
     {
+        $actor = $this->context->actor($request);
+        if ($request->user()->isAgent()) {
+            abort_unless($this->access->canAccessUnprojected($actor, $scope), 403, 'Creating projects requires all-project access in the scope.');
+        }
         $data = $request->validated();
         $data['sort_order'] ??= ((int) $scope->projects()->max('sort_order')) + 1;
-        $project = $scope->projects()->create([...$data, 'created_by' => $this->context->actor($request)->id]);
+        $project = $scope->projects()->create([...$data, 'created_by' => $actor->id]);
 
         return new ProjectResource($project->loadCount(['tasks', 'books']));
     }
@@ -50,16 +54,16 @@ class ProjectController extends Controller
     /**
      * Display the specified resource.
      */
-    public function show(Scope $scope, Project $project): ProjectResource
+    public function show(Request $request, Scope $scope, Project $project): ProjectResource
     {
-        abort_unless($project->scope_id === $scope->id, 404);
+        abort_unless($this->access->canAccessProject($this->context->actor($request), $scope, $project), 404);
 
         return new ProjectResource($project->load('books:id,scope_id,project_id,title')->loadCount(['tasks', 'books']));
     }
 
     public function update(UpdateProjectRequest $request, Scope $scope, Project $project): ProjectResource
     {
-        abort_unless($project->scope_id === $scope->id, 404);
+        abort_unless($this->access->canAccessProject($this->context->actor($request), $scope, $project, 'task.update'), 404);
         $project->update($request->validated());
 
         return new ProjectResource($project->fresh()->load('books:id,scope_id,project_id,title')->loadCount(['tasks', 'books']));

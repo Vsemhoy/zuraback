@@ -101,6 +101,29 @@ class ContractorAccessService
         return $this->membership($user, $scope)?->project_access_mode === 'all';
     }
 
+    public function canAccessProject(User $user, Scope $scope, Project $project, string $ability = 'task.view'): bool
+    {
+        return $project->scope_id === $scope->id
+            && $this->allows($user, $scope, $ability, $project);
+    }
+
+    public function canAccessTask(User $user, Scope $scope, Task $task, string $ability = 'task.view'): bool
+    {
+        if ($task->scope_id !== $scope->id || ! $this->allows($user, $scope, $ability)) {
+            return false;
+        }
+
+        if ($task->project_id === null) {
+            return $this->canAccessUnprojected($user, $scope);
+        }
+
+        $project = $task->relationLoaded('project')
+            ? $task->project
+            : Project::query()->find($task->project_id);
+
+        return $project !== null && $this->canAccessProject($user, $scope, $project, $ability);
+    }
+
     public function canManageContractor(User $user, Scope $scope, User $contractor): bool
     {
         if ($this->allows($user, $scope, 'contractor.manage')) {

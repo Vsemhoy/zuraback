@@ -12,6 +12,7 @@ use App\Models\Project;
 use App\Models\Scope;
 use App\Models\Task;
 use App\Models\TaskChecklistItem;
+use App\Services\ContractorAccessService;
 use App\Services\ContractorContext;
 use App\Services\TaskKeyService;
 use Illuminate\Http\Request;
@@ -21,18 +22,21 @@ use Illuminate\Support\Facades\DB;
 
 class TaskChecklistItemController extends Controller
 {
-    public function __construct(private readonly ContractorContext $context) {}
+    public function __construct(
+        private readonly ContractorContext $context,
+        private readonly ContractorAccessService $access,
+    ) {}
 
-    public function index(Scope $scope, Task $task): AnonymousResourceCollection
+    public function index(Request $request, Scope $scope, Task $task): AnonymousResourceCollection
     {
-        $this->assertTask($scope, $task);
+        $this->assertTask($request, $scope, $task);
 
         return TaskChecklistItemResource::collection($task->checklistItems()->with(['assignee:id,name', 'completedBy:id,name'])->get());
     }
 
     public function store(StoreTaskChecklistItemRequest $request, Scope $scope, Task $task): TaskChecklistItemResource
     {
-        $this->assertTask($scope, $task);
+        $this->assertTask($request, $scope, $task, 'task.update');
         $data = $request->validated();
         $data['sort_order'] ??= ((int) $task->checklistItems()->max('sort_order')) + 1;
         $item = $task->checklistItems()->create([...$data, 'created_by' => $this->context->actor($request)->id]);
@@ -42,7 +46,7 @@ class TaskChecklistItemController extends Controller
 
     public function update(UpdateTaskChecklistItemRequest $request, Scope $scope, Task $task, TaskChecklistItem $item): TaskChecklistItemResource
     {
-        $this->assertItem($scope, $task, $item);
+        $this->assertItem($request, $scope, $task, $item, 'task.update');
         $data = $request->validated();
 
         DB::transaction(function () use ($request, $scope, $item, &$data): void {
@@ -75,9 +79,9 @@ class TaskChecklistItemController extends Controller
         return new TaskChecklistItemResource($item->fresh()->load(['assignee:id,name', 'completedBy:id,name']));
     }
 
-    public function destroy(Scope $scope, Task $task, TaskChecklistItem $item): Response
+    public function destroy(Request $request, Scope $scope, Task $task, TaskChecklistItem $item): Response
     {
-        $this->assertItem($scope, $task, $item);
+        $this->assertItem($request, $scope, $task, $item, 'task.update');
         $item->delete();
 
         return response()->noContent();
@@ -85,7 +89,7 @@ class TaskChecklistItemController extends Controller
 
     public function convertToSubtask(Request $request, Scope $scope, Task $task, TaskChecklistItem $item, TaskKeyService $keys): TaskResource
     {
-        $this->assertItem($scope, $task, $item);
+        $this->assertItem($request, $scope, $task, $item, 'task.update');
         abort_if($task->parent_id !== null, 422, 'Only one level of true subtasks is supported.');
 
         $subtask = DB::transaction(function () use ($request, $scope, $task, $item, $keys): Task {
@@ -115,14 +119,14 @@ class TaskChecklistItemController extends Controller
         return new TaskResource($subtask->load(['project:id,title,key', 'assignee:id,name']));
     }
 
-    private function assertTask(Scope $scope, Task $task): void
+    private function assertTask(Request $request, Scope $scope, Task $task, string $ability = 'task.view'): void
     {
-        abort_unless($task->scope_id === $scope->id, 404);
+        abort_unless($this->access->canAccessTask($this->context->actor($request), $scope, $task, $ability), 404);
     }
 
-    private function assertItem(Scope $scope, Task $task, TaskChecklistItem $item): void
+    private function assertItem(Request $request, Scope $scope, Task $task, TaskChecklistItem $item, string $ability = 'task.view'): void
     {
-        $this->assertTask($scope, $task);
+        $this->assertTask($request, $scope, $task, $ability);
         abort_unless($item->task_id === $task->id, 404);
     }
 }

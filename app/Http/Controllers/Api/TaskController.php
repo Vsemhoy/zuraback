@@ -16,10 +16,10 @@ use App\Models\Task;
 use App\Models\User;
 use App\Services\ContractorAccessService;
 use App\Services\ContractorContext;
-use App\Services\TaskKeyService;
 use App\Services\TaskCompletionService;
-use Illuminate\Http\Request;
+use App\Services\TaskKeyService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
@@ -97,16 +97,16 @@ class TaskController extends Controller
     /**
      * Display the specified resource.
      */
-    public function show(Scope $scope, Task $task): TaskResource
+    public function show(Request $request, Scope $scope, Task $task): TaskResource
     {
-        abort_unless($task->scope_id === $scope->id, 404);
+        abort_unless($this->access->canAccessTask($this->context->actor($request), $scope, $task), 404);
 
         return new TaskResource($task->load(['project:id,title,key,color', 'kpi:id,name,kind,points,minimum_completed_tasks', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type', 'checklistItems.assignee:id,name', 'checklistItems.completedBy:id,name', 'blockers.responsibleUser:id,name', 'blockers.blockedBy:id,name', 'blockers.resolvedBy:id,name', 'children:id,scope_id,project_id,parent_id,task_key,title,status,priority,due_at,assignee_id']));
     }
 
     public function update(UpdateTaskRequest $request, Scope $scope, Task $task): TaskResource
     {
-        abort_unless($task->scope_id === $scope->id, 404);
+        abort_unless($this->access->canAccessTask($this->context->actor($request), $scope, $task, 'task.update'), 404);
         $data = $request->validated();
         $this->normalizeAgentDelegation($data);
         $this->assertReferencesBelongToScope($scope, $data, $this->context->actor($request));
