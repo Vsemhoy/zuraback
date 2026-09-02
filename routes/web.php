@@ -108,6 +108,9 @@ Route::prefix('api')->middleware(['spa.request', 'auth', 'active'])->group(funct
         Route::get('/books', [BookController::class, 'index'])->middleware(['scope.actor', 'book.access:book.view']);
         Route::get('/book-spaces', [BookSpaceController::class, 'index'])->middleware(['scope.actor', 'book.access:book.view']);
         Route::post('/book-spaces', [BookSpaceController::class, 'store'])->middleware(['scope.actor', 'book.access:book.create']);
+        Route::patch('/book-spaces/reorder', [BookSpaceController::class, 'reorder'])->middleware(['scope.actor', 'book.access:book.update']);
+        Route::patch('/book-spaces/{bookSpace}', [BookSpaceController::class, 'update'])->middleware(['scope.actor', 'book.access:book.update']);
+        Route::delete('/book-spaces/{bookSpace}', [BookSpaceController::class, 'destroy'])->middleware(['scope.actor', 'book.access:book.delete']);
         Route::post('/books', [BookController::class, 'store'])->middleware(['scope.actor', 'book.access:book.create']);
         Route::get('/books/{book}', [BookController::class, 'show'])->middleware(['scope.actor', 'book.access:book.view']);
         Route::patch('/books/{book}', [BookController::class, 'update'])->middleware(['scope.actor', 'book.access:book.update']);

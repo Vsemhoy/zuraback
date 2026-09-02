@@ -75,6 +75,33 @@ class BookerApiTest extends TestCase
         $this->withHeaders(self::HEADERS)->getJson("/api/scopes/{$scope->id}/books")->assertOk()->assertJsonCount(0, 'data');
     }
 
+    public function test_booker_lists_are_not_truncated_and_spaces_can_be_managed(): void
+    {
+        $user = User::factory()->create();
+        $scope = Scope::query()->create(['owner_id' => $user->id, 'name' => 'Work', 'slug' => 'work']);
+        $scope->members()->create(['user_id' => $user->id, 'role' => 'owner', 'joined_at' => now()]);
+        $this->actingAs($user)->withHeaders(self::HEADERS);
+
+        $first = $this->postJson("/api/scopes/{$scope->id}/book-spaces", ['title' => 'First'])->assertCreated()->json('data');
+        $second = $this->postJson("/api/scopes/{$scope->id}/book-spaces", ['title' => 'Second'])->assertCreated()->json('data');
+        $book = $this->postJson("/api/scopes/{$scope->id}/books", ['title' => 'Movable', 'space_id' => $first['id']])->assertCreated()->json('data');
+
+        foreach (range(1, 18) as $index) {
+            $this->postJson("/api/scopes/{$scope->id}/books", ['title' => "Book {$index}"])->assertCreated();
+        }
+        foreach (range(1, 18) as $index) {
+            $scope->books()->findOrFail($book['id'])->pages()->create(['created_by' => $user->id, 'title' => "Page {$index}"]);
+        }
+
+        $this->getJson("/api/scopes/{$scope->id}/books")->assertOk()->assertJsonCount(19, 'data');
+        $this->getJson("/api/scopes/{$scope->id}/books/{$book['id']}/pages")->assertOk()->assertJsonCount(18, 'data');
+        $this->patchJson("/api/scopes/{$scope->id}/book-spaces/{$first['id']}", ['title' => 'Renamed'])->assertOk()->assertJsonPath('data.title', 'Renamed');
+        $this->patchJson("/api/scopes/{$scope->id}/book-spaces/reorder", ['space_ids' => [$second['id'], $first['id']]])->assertOk()->assertJsonPath('data.0.id', $second['id']);
+        $this->deleteJson("/api/scopes/{$scope->id}/book-spaces/{$first['id']}")->assertNoContent();
+        $this->assertSoftDeleted('book_spaces', ['id' => $first['id']]);
+        $this->assertDatabaseHas('books', ['id' => $book['id'], 'space_id' => null]);
+    }
+
     public function test_page_version_can_be_restored_and_the_previous_state_is_preserved(): void
     {
         $user = User::factory()->create();
