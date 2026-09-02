@@ -29,6 +29,7 @@ class UpdateContractorRequest extends FormRequest
         return [
             'name' => ['sometimes', 'string', 'max:255'],
             'position' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'preferred_language' => ['sometimes', Rule::in(User::LANGUAGES)],
             'type' => ['sometimes', Rule::in(User::TYPES)],
             'status' => ['sometimes', Rule::in(User::STATUSES)],
             'is_executor' => ['sometimes', 'boolean'],

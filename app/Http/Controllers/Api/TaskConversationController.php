@@ -7,10 +7,13 @@ use App\Http\Requests\Api\StoreTaskCommentRequest;
 use App\Http\Resources\ActivityLogResource;
 use App\Http\Resources\CommentResource;
 use App\Models\ActivityLog;
+use App\Models\Comment;
 use App\Models\Scope;
 use App\Models\Task;
 use App\Services\ContractorContext;
+use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Http\Response;
 
 class TaskConversationController extends Controller
 {
@@ -39,6 +42,23 @@ class TaskConversationController extends Controller
         ]);
 
         return new CommentResource($comment->load('creator:id,name'));
+    }
+
+    public function destroyComment(Request $request, Scope $scope, Task $task, Comment $comment): Response
+    {
+        $this->assertTask($scope, $task);
+        abort_unless($comment->commentable_type === 'task' && $comment->commentable_id === $task->id, 404);
+        $actor = $this->context->actor($request);
+        abort_unless($comment->created_by === $actor->id || $task->created_by === $actor->id || $scope->owner_id === $actor->id, 403);
+        $comment->delete();
+        ActivityLog::query()->create([
+            'scope_id' => $scope->id, 'actor_id' => $actor->id, 'subject_type' => 'task', 'subject_id' => $task->id,
+            'action' => 'task.comment_deleted', 'before' => ['comment_id' => $comment->id, 'content' => $comment->content],
+            'context' => ['comment_id' => $comment->id, ...$this->context->auditMetadata($request)],
+            'ip_address' => $request->ip(), 'user_agent' => $request->userAgent(),
+        ]);
+
+        return response()->noContent();
     }
 
     public function activity(Scope $scope, Task $task): AnonymousResourceCollection

@@ -21,6 +21,7 @@ class ContractorResource extends JsonResource
             'id' => $this->id,
             'name' => $this->name,
             'position' => $this->position,
+            'preferred_language' => $this->preferred_language,
             'type' => $this->type,
             'status' => $this->status,
             'is_executor' => $this->is_executor,

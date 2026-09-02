@@ -398,8 +398,13 @@ class TaskerApiTest extends TestCase
             ->assertCreated()->assertJsonPath('data.parent_id', $comment['id']);
         $this->withHeaders(self::HEADERS)->getJson("/api/scopes/{$scope->id}/tasks/{$task['id']}/comments")
             ->assertOk()->assertJsonCount(2, 'data')->assertJsonPath('data.0.content', 'We need administrative access.');
+        $this->withHeaders(self::HEADERS)->getJson("/api/scopes/{$scope->id}/tasks")
+            ->assertOk()->assertJsonPath('data.0.comments_count', 2);
+        $this->withHeaders(self::HEADERS)->deleteJson("/api/scopes/{$scope->id}/tasks/{$task['id']}/comments/{$comment['id']}")
+            ->assertNoContent();
+        $this->assertSoftDeleted('comments', ['id' => $comment['id']]);
         $this->withHeaders(self::HEADERS)->getJson("/api/scopes/{$scope->id}/tasks/{$task['id']}/activity")
-            ->assertOk()->assertJsonPath('data.0.action', 'task.comment_created')->assertJsonPath('data.0.actor.id', $user->id);
+            ->assertOk()->assertJsonPath('data.0.action', 'task.comment_deleted')->assertJsonPath('data.0.actor.id', $user->id);
     }
 
     /** @return array{User, Scope} */

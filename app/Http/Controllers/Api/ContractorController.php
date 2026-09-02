@@ -126,7 +126,7 @@ class ContractorController extends Controller
             $status = $data['status'] ?? 'active';
             $type = $data['type'];
             $contractor = User::query()->create([
-                ...Arr::only($data, ['name', 'position', 'type', 'username', 'email']),
+                ...Arr::only($data, ['name', 'position', 'preferred_language', 'type', 'username', 'email']),
                 'status' => $status,
                 'password' => $type === 'real' ? $data['password'] : null,
                 'created_by' => $request->user()->id,
@@ -401,7 +401,12 @@ class ContractorController extends Controller
         $data['type'] = 'agent';
         $data['role'] = 'observer';
         $data['can_act_as'] = false;
-        $data['book_access_mode'] = 'none';
+        $requestedBookMode = $data['book_access_mode'] ?? 'none';
+        $data['book_access_mode'] = match ($membership?->book_access_mode ?? 'none') {
+            'all' => $requestedBookMode,
+            'projects' => $requestedBookMode === 'none' ? 'none' : 'projects',
+            default => 'none',
+        };
         $data['permissions'] = [
             'allow' => array_values(array_intersect($requestedAllow, $allowedAbilities)),
             'deny' => array_values($data['permissions']['deny'] ?? []),

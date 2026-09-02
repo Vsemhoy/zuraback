@@ -15,7 +15,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
-#[Fillable(['type', 'status', 'created_by', 'name', 'position', 'username', 'email', 'password', 'activated_at', 'is_active', 'is_executor', 'profile'])]
+#[Fillable(['type', 'status', 'created_by', 'name', 'position', 'preferred_language', 'username', 'email', 'password', 'activated_at', 'is_active', 'is_executor', 'profile'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -25,6 +25,8 @@ class User extends Authenticatable
     public const TYPES = ['real', 'virtual', 'agent'];
 
     public const STATUSES = ['active', 'blocked', 'dormant'];
+
+    public const LANGUAGES = ['ru', 'en', 'zh'];
 
     public function creator(): BelongsTo
     {

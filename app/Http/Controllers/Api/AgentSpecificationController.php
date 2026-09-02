@@ -17,6 +17,11 @@ class AgentSpecificationController extends Controller
             ->with('scope:id,name,slug')
             ->orderBy('scope_id')
             ->get();
+        $language = match ($agent->preferred_language) {
+            'en' => ['English', 'Write task comments, durable notes, reports, and user-facing answers in English unless the task explicitly requires another language.'],
+            'zh' => ['Chinese', 'Write task comments, durable notes, reports, and user-facing answers in Chinese unless the task explicitly requires another language.'],
+            default => ['Russian', 'Write task comments, durable notes, reports, and user-facing answers in Russian unless the task explicitly requires another language.'],
+        };
 
         $scopeLines = $memberships->map(function ($membership): string {
             $scope = $membership->scope;
@@ -33,12 +38,14 @@ class AgentSpecificationController extends Controller
         $lines = [
             '# Zuratax Agent API',
             '',
-            'Specification version: 2026-09-02.4',
+            'Specification version: 2026-09-02.5',
             'Generated at: '.now()->toIso8601String(),
             '',
             '## Identity and access',
             '',
             "You are authenticated as **{$agent->name}** (`{$agent->id}`).",
+            "Working language: **{$language[0]}** (`{$agent->preferred_language}`).",
+            $language[1],
             'Token abilities: '.($abilities->isEmpty() ? '_none_' : $abilities->map(fn (string $ability): string => "`{$ability}`")->implode(', ')).'.',
             '',
             'Accessible scopes:',
@@ -70,6 +77,15 @@ class AgentSpecificationController extends Controller
             '- `POST /api/agent/scopes/{scope}/projects`',
             '- `GET /api/agent/scopes/{scope}/projects/{project}`',
             '- `PATCH /api/agent/scopes/{scope}/projects/{project}`',
+            '- `GET /api/agent/scopes/{scope}/books` — list books allowed by `book_access_mode` and project access.',
+            '- `POST /api/agent/scopes/{scope}/books` — create a book when `book.create` is allowed.',
+            '- `GET /api/agent/scopes/{scope}/books/{book}`',
+            '- `PATCH /api/agent/scopes/{scope}/books/{book}` — update when `book.update` is allowed.',
+            '- `DELETE /api/agent/scopes/{scope}/books/{book}` — delete when `book.delete` is explicitly allowed.',
+            '- `GET|POST /api/agent/scopes/{scope}/books/{book}/pages`',
+            '- `GET|PATCH /api/agent/scopes/{scope}/books/{book}/pages/{page}`',
+            '- `GET|POST /api/agent/scopes/{scope}/books/{book}/pages/{page}/blocks`',
+            '- `GET|POST /api/agent/scopes/{scope}/books/{book}/pages/{page}/comments`',
             '- `GET /api/agent/scopes/{scope}/contractors/assignable` — safe assignee options.',
             '- `POST /api/agent/scopes/{scope}/facts` — create a Factor fact.',
             '- `POST /api/agent/scopes/{scope}/links` — link two accessible entities.',
@@ -85,6 +101,7 @@ class AgentSpecificationController extends Controller
             '- `PATCH /api/agent/scopes/{scope}/tasks/{task}/checklist/{item}`',
             '- `GET /api/agent/scopes/{scope}/tasks/{task}/comments`',
             '- `POST /api/agent/scopes/{scope}/tasks/{task}/comments`',
+            '- `DELETE /api/agent/scopes/{scope}/tasks/{task}/comments/{comment}`',
             '- `GET /api/agent/scopes/{scope}/tasks/{task}/activity`',
             '',
             '## Task documents',
@@ -102,6 +119,7 @@ class AgentSpecificationController extends Controller
             '```',
             '',
             'Only call endpoints allowed by both the token abilities and the membership capabilities. Project restrictions remain in force inside a scope.',
+            'Book routes additionally enforce `book_access_mode`: `none`, `projects`, or `all`. Never assume that `book.*` token abilities alone grant access to a book.',
             'Creating facts requires `task.create`; creating links requires `task.update`. A link payload contains `source_type`, `source_id`, `target_type`, `target_id`, and optional `relation`, `note`, and `meta`.',
             'Tasker imports require both `task.create` and `task.update`, preserve external ULIDs for idempotency, never delete records, and require all-project access when creating projects.',
             'Booker imports require both `book.create` and `book.update`, full book access in the scope, and preserve external ULIDs. They never delete or overwrite an earlier imported entity.',

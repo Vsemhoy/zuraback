@@ -30,6 +30,7 @@ class UserResource extends JsonResource
             'email' => $this->email,
             'type' => $this->type,
             'status' => $this->status,
+            'preferred_language' => $this->preferred_language,
             'acting_as' => $actingAs,
             'acting_scope_id' => $actingAs ? $request->session()->get('contractor.scope_id') : null,
         ];

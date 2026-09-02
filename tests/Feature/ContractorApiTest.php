@@ -23,10 +23,12 @@ class ContractorApiTest extends TestCase
         $virtual = $this->actingAs($owner)->withHeaders(self::HEADERS)
             ->postJson("/api/scopes/{$scope->id}/contractors", [
                 'name' => 'Elena Virtual', 'type' => 'virtual', 'role' => 'member',
+                'preferred_language' => 'zh',
                 'project_access_mode' => 'restricted', 'project_ids' => [$allowedProject->id],
                 'permissions' => ['allow' => ['task.view', 'task.create', 'task.update'], 'deny' => []],
                 'can_act_as' => true,
             ])->assertCreated()->assertJsonPath('data.type', 'virtual')
+            ->assertJsonPath('data.preferred_language', 'zh')
             ->assertJsonPath('data.projects.0.id', $allowedProject->id)
             ->assertJsonPath('data.can_act_as', true)->json('data');
 
@@ -101,7 +103,7 @@ class ContractorApiTest extends TestCase
         $this->get('/api/agent/spec', ['Accept' => 'text/markdown'])->assertUnauthorized();
 
         [$owner, $scope] = $this->workspace();
-        $agent = User::factory()->agent()->create(['name' => 'Instruction Agent']);
+        $agent = User::factory()->agent()->create(['name' => 'Instruction Agent', 'preferred_language' => 'ru']);
         $scope->members()->create([
             'user_id' => $agent->id,
             'role' => 'observer',
@@ -116,13 +118,37 @@ class ContractorApiTest extends TestCase
         $response->assertOk()
             ->assertHeader('Content-Type', 'text/markdown; charset=UTF-8')
             ->assertSee('# Zuratax Agent API', false)
-            ->assertSee('Specification version: 2026-09-02.4', false)
+            ->assertSee('Specification version: 2026-09-02.5', false)
+            ->assertSee('Working language: **Russian** (`ru`)', false)
+            ->assertSee('answers in Russian', false)
+            ->assertSee('/api/agent/scopes/{scope}/books', false)
             ->assertSee('/api/agent/tasks', false)
             ->assertSee('agent_notes', false)
             ->assertSee('durable AI findings', false)
             ->assertSee($scope->id, false)
             ->assertDontSee($token, false);
         $this->assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
+    }
+
+    public function test_agent_can_use_booker_routes_only_with_explicit_book_access(): void
+    {
+        [$owner, $scope] = $this->workspace();
+        $agent = User::factory()->agent()->create(['created_by' => $owner->id]);
+        $scope->members()->create([
+            'user_id' => $agent->id,
+            'role' => 'observer',
+            'permissions' => ['allow' => ['book.view', 'book.create', 'book.update', 'book.delete'], 'deny' => []],
+            'book_access_mode' => 'all',
+            'joined_at' => now(),
+        ]);
+        $token = $agent->createToken('Booker client', ['book.view', 'book.create', 'book.update', 'book.delete'])->plainTextToken;
+
+        $book = $this->withToken($token)->postJson("/api/agent/scopes/{$scope->id}/books", ['title' => 'Agent handbook'])
+            ->assertCreated()->assertJsonPath('data.title', 'Agent handbook')->json('data');
+        $this->withToken($token)->getJson("/api/agent/scopes/{$scope->id}/books")
+            ->assertOk()->assertJsonPath('data.0.id', $book['id']);
+        $this->withToken($token)->deleteJson("/api/agent/scopes/{$scope->id}/books/{$book['id']}")->assertNoContent();
+        $this->assertSoftDeleted('books', ['id' => $book['id']]);
     }
 
     public function test_virtual_and_agent_accounts_cannot_use_the_web_login(): void
@@ -232,8 +258,9 @@ class ContractorApiTest extends TestCase
         $scope->members()->create([
             'user_id' => $member->id,
             'role' => 'member',
-            'permissions' => ['allow' => ['task.view', 'task.create', 'task.update'], 'deny' => []],
+            'permissions' => ['allow' => ['task.view', 'task.create', 'task.update', 'book.view'], 'deny' => []],
             'project_access_mode' => 'all',
+            'book_access_mode' => 'projects',
             'joined_at' => now(),
         ]);
         $ownerAgent = User::factory()->agent()->create(['created_by' => $owner->id]);
@@ -245,11 +272,13 @@ class ContractorApiTest extends TestCase
                 'type' => 'agent',
                 'role' => 'admin',
                 'project_access_mode' => 'all',
-                'permissions' => ['allow' => ['task.view', 'task.create'], 'deny' => []],
+                'book_access_mode' => 'all',
+                'permissions' => ['allow' => ['task.view', 'task.create', 'book.view'], 'deny' => []],
             ])
             ->assertCreated()
             ->assertJsonPath('data.type', 'agent')
             ->assertJsonPath('data.role', 'observer')
+            ->assertJsonPath('data.book_access_mode', 'projects')
             ->json('data');
 
         $this->withHeaders(self::HEADERS)->getJson("/api/scopes/{$scope->id}/contractors")
