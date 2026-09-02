@@ -14,6 +14,12 @@ class TaskResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
-        return parent::toArray($request);
+        return [
+            ...parent::toArray($request),
+            'planner_tails' => $this->whenLoaded('plannerTails', fn () => $this->plannerTails->map(fn ($tail): array => [
+                'id' => $tail->id,
+                'planned_on' => $tail->planned_on->format('Y-m-d'),
+            ])->values()),
+        ];
     }
 }

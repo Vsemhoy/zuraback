@@ -104,7 +104,7 @@ class TaskController extends Controller
     {
         abort_unless($this->access->canAccessTask($this->context->actor($request), $scope, $task), 404);
 
-        return new TaskResource($task->load(['project:id,title,key,color', 'kpi:id,name,kind,points,minimum_completed_tasks', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type', 'checklistItems.assignee:id,name', 'checklistItems.completedBy:id,name', 'blockers.responsibleUser:id,name', 'blockers.blockedBy:id,name', 'blockers.resolvedBy:id,name', 'children:id,scope_id,project_id,parent_id,task_key,title,status,priority,due_at,assignee_id']));
+        return new TaskResource($task->load(['project:id,title,key,color', 'kpi:id,name,kind,points,minimum_completed_tasks', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type', 'checklistItems.assignee:id,name', 'checklistItems.completedBy:id,name', 'blockers.responsibleUser:id,name', 'blockers.blockedBy:id,name', 'blockers.resolvedBy:id,name', 'children:id,scope_id,project_id,parent_id,task_key,title,status,priority,due_at,assignee_id', 'plannerTails' => fn ($query) => $query->orderBy('planned_on')]));
     }
 
     public function update(UpdateTaskRequest $request, Scope $scope, Task $task): TaskResource
@@ -157,7 +157,7 @@ class TaskController extends Controller
             'user_agent' => $request->userAgent(),
         ]);
 
-        return new TaskResource($task->fresh()->load(['project:id,title,key,color', 'kpi:id,name,kind,points,minimum_completed_tasks', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type', 'checklistItems.assignee:id,name', 'checklistItems.completedBy:id,name', 'blockers.responsibleUser:id,name', 'blockers.blockedBy:id,name', 'blockers.resolvedBy:id,name', 'children:id,scope_id,project_id,parent_id,task_key,title,status,priority,due_at,assignee_id']));
+        return new TaskResource($task->fresh()->load(['project:id,title,key,color', 'kpi:id,name,kind,points,minimum_completed_tasks', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type', 'checklistItems.assignee:id,name', 'checklistItems.completedBy:id,name', 'blockers.responsibleUser:id,name', 'blockers.blockedBy:id,name', 'blockers.resolvedBy:id,name', 'children:id,scope_id,project_id,parent_id,task_key,title,status,priority,due_at,assignee_id', 'plannerTails' => fn ($query) => $query->orderBy('planned_on')]));
     }
 
     public function move(MoveTaskRequest $request, Scope $scope, Task $task): TaskResource
