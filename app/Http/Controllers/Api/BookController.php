@@ -29,7 +29,7 @@ class BookController extends Controller
     {
         $books = $this->access->constrainBooks($scope->books()->getQuery(), $this->context->actor($request), $scope);
 
-        return BookResource::collection($books->with('project:id,title,key,color')->withCount('pages')->orderBy('sort_order')->orderBy('title')->paginate());
+        return BookResource::collection($books->with('project:id,title,key,color')->withCount('pages')->orderBy('sort_order')->orderBy('title')->get());
     }
 
     /**

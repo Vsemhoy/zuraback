@@ -20,7 +20,7 @@ class BookPageController extends Controller
     {
         $this->assertBookInScope($scope, $book);
 
-        return BookPageResource::collection($book->pages()->withCount('groups')->orderBy('sort_order')->paginate());
+        return BookPageResource::collection($book->pages()->withCount('groups')->orderBy('sort_order')->get());
     }
 
     /**
