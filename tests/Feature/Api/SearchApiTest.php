@@ -84,8 +84,8 @@ class SearchApiTest extends TestCase
         ProjectMember::factory()->create(['project_id' => $allowed->id, 'user_id' => $member->id, 'assigned_by' => $owner->id, 'is_active' => true]);
         $allowedTask = Task::factory()->create(['scope_id' => $scope->id, 'project_id' => $allowed->id, 'created_by' => $owner->id, 'title' => 'Спутник доступный']);
         $hiddenTask = Task::factory()->create(['scope_id' => $scope->id, 'project_id' => $hidden->id, 'created_by' => $owner->id, 'title' => 'Спутник закрытый']);
-        $allowedBook = Book::factory()->create(['scope_id' => $scope->id, 'project_id' => $allowed->id, 'created_by' => $owner->id, 'title' => 'Спутник handbook']);
-        $hiddenBook = Book::factory()->create(['scope_id' => $scope->id, 'project_id' => $hidden->id, 'created_by' => $owner->id, 'title' => 'Спутник hidden']);
+        $allowedBook = Book::factory()->create(['scope_id' => $scope->id, 'project_id' => $allowed->id, 'created_by' => $owner->id, 'title' => 'Спутник handbook', 'visibility' => 'scope']);
+        $hiddenBook = Book::factory()->create(['scope_id' => $scope->id, 'project_id' => $hidden->id, 'created_by' => $owner->id, 'title' => 'Спутник hidden', 'visibility' => 'scope']);
 
         $response = $this->actingAs($member)
             ->withHeaders(self::HEADERS)

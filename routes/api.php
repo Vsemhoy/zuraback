@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\AgentBookerImportController;
 use App\Http\Controllers\Api\AgentSpecificationController;
 use App\Http\Controllers\Api\AgentTaskController;
 use App\Http\Controllers\Api\AgentTaskerImportController;
@@ -35,6 +36,7 @@ Route::prefix('agent')->middleware(['auth:sanctum', 'active', 'agent'])->group(f
         Route::post('/facts', [FactController::class, 'store'])->middleware('scope.ability:task.create');
         Route::post('/links', [EntityLinkController::class, 'store'])->middleware('scope.ability:task.update');
         Route::post('/imports/tasker', [AgentTaskerImportController::class, 'store'])->middleware(['scope.ability:task.create', 'scope.ability:task.update']);
+        Route::post('/imports/booker', [AgentBookerImportController::class, 'store'])->middleware(['scope.ability:book.create', 'scope.ability:book.update']);
         Route::get('/tasks', [TaskController::class, 'index'])->middleware('scope.ability:task.view');
         Route::post('/tasks', [TaskController::class, 'store'])->middleware('scope.ability:task.create');
         Route::get('/tasks/search', [TaskController::class, 'search'])->middleware('scope.ability:task.view');

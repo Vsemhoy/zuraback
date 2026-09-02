@@ -213,6 +213,9 @@ class ContractorAccessService
         if ($scope->owner_id === $user->id) {
             return true;
         }
+        if ($book->visibility === 'private' && $book->created_by !== $user->id) {
+            return false;
+        }
         $membership = $this->membership($user, $scope);
         if ($membership?->book_access_mode === 'none') {
             return false;
@@ -236,6 +239,9 @@ class ContractorAccessService
         if ($membership === null || $membership->book_access_mode === 'none') {
             return $query->whereRaw('1 = 0');
         }
+        $query->where(fn (Builder $books): Builder => $books
+            ->where('visibility', '!=', 'private')
+            ->orWhere('created_by', $user->id));
         if ($membership->book_access_mode === 'projects') {
             if ($membership->project_access_mode === 'all') {
                 $query->where(fn (Builder $books): Builder => $books

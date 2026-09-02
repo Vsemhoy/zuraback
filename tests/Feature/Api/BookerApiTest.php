@@ -48,7 +48,7 @@ class BookerApiTest extends TestCase
         $scope = Scope::query()->create(['owner_id' => $owner->id, 'name' => 'Work', 'slug' => 'work']);
         $scope->members()->create(['user_id' => $owner->id, 'role' => 'owner', 'joined_at' => now()]);
         $scope->members()->create(['user_id' => $other->id, 'role' => 'member', 'book_access_mode' => 'all', 'permissions' => ['allow' => ['book.view', 'book.update'], 'deny' => []], 'joined_at' => now()]);
-        $book = $scope->books()->create(['created_by' => $owner->id, 'title' => 'Locked']);
+        $book = $scope->books()->create(['created_by' => $owner->id, 'title' => 'Locked', 'visibility' => 'scope']);
         $page = $book->pages()->create(['created_by' => $owner->id, 'title' => 'Page']);
         $this->actingAs($owner)->withHeaders(self::HEADERS)->postJson("/api/scopes/{$scope->id}/books/{$book->id}/pages/{$page->id}/editing")->assertOk();
         $this->actingAs($other)->withHeaders(self::HEADERS)->postJson("/api/scopes/{$scope->id}/books/{$book->id}/pages/{$page->id}/editing")
