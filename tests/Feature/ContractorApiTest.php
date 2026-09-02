@@ -116,7 +116,10 @@ class ContractorApiTest extends TestCase
         $response->assertOk()
             ->assertHeader('Content-Type', 'text/markdown; charset=UTF-8')
             ->assertSee('# Zuratax Agent API', false)
+            ->assertSee('Specification version: 2026-09-02.4', false)
             ->assertSee('/api/agent/tasks', false)
+            ->assertSee('agent_notes', false)
+            ->assertSee('durable AI findings', false)
             ->assertSee($scope->id, false)
             ->assertDontSee($token, false);
         $this->assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
