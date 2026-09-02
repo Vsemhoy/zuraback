@@ -129,7 +129,7 @@ class AgentTaskerImportController extends Controller
                 $this->assertAssigneeCanAccess($scope, $project, $payload['assignee_id'] ?? null);
                 $identity = $this->keys->reserve($scope, $project);
                 $task = Task::query()->forceCreate([
-                    ...Arr::except($payload, ['external_id', 'project_external_id', 'parent_external_id', 'legacy_spans']),
+                    ...Arr::except($payload, ['external_id', 'project_external_id', 'parent_external_id', 'legacy_assignee', 'legacy_spans']),
                     ...$identity,
                     'id' => strtolower($payload['external_id']),
                     'scope_id' => $scope->id,
@@ -138,6 +138,7 @@ class AgentTaskerImportController extends Controller
                     'created_by' => $actor->id,
                     'meta' => [
                         'import' => ['source' => $data['source'], 'external_id' => $payload['external_id']],
+                        'legacy_assignee' => $payload['legacy_assignee'] ?? null,
                         'legacy_spans' => $payload['legacy_spans'] ?? [],
                     ],
                 ]);

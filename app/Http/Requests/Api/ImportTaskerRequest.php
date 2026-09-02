@@ -33,6 +33,7 @@ class ImportTaskerRequest extends WorkspaceRequest
             'tasks.*.project_external_id' => ['required', 'ulid'],
             'tasks.*.parent_external_id' => ['nullable', 'ulid'],
             'tasks.*.assignee_id' => ['nullable', 'ulid'],
+            'tasks.*.legacy_assignee' => ['nullable', 'string', 'max:255'],
             'tasks.*.title' => ['required', 'string', 'max:255'],
             'tasks.*.description' => ['nullable', 'string'],
             'tasks.*.result' => ['nullable', 'string'],

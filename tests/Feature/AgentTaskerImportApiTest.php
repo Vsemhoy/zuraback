@@ -49,6 +49,7 @@ class AgentTaskerImportApiTest extends TestCase
                     'project_external_id' => $projectExternalId,
                     'parent_external_id' => null,
                     'assignee_id' => $agent->id,
+                    'legacy_assignee' => 'Legacy Agent',
                     'title' => 'Imported parent',
                     'description' => 'Legacy body',
                     'result' => 'Legacy result',
@@ -135,6 +136,7 @@ class AgentTaskerImportApiTest extends TestCase
         $this->assertDatabaseHas('comments', ['id' => $commentExternalId, 'commentable_id' => $parentExternalId]);
         $this->assertDatabaseHas('activity_logs', ['id' => $activityExternalId, 'subject_id' => $parentExternalId]);
         $this->assertSame('fact', Task::query()->findOrFail($parentExternalId)->meta['legacy_spans'][0]['kind']);
+        $this->assertSame('Legacy Agent', Task::query()->findOrFail($parentExternalId)->meta['legacy_assignee']);
 
         $this->withToken($token)->postJson("/api/agent/scopes/{$scope->id}/imports/tasker", $payload)
             ->assertCreated()
