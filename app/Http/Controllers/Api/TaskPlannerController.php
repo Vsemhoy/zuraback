@@ -13,8 +13,8 @@ use App\Models\TaskPlannerTail;
 use App\Models\User;
 use App\Services\ContractorAccessService;
 use App\Services\ContractorContext;
-use App\Services\TaskKeyService;
 use App\Services\TaskCompletionService;
+use App\Services\TaskKeyService;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -129,7 +129,7 @@ class TaskPlannerController extends Controller
             $project = $task->project_id ? Project::query()->findOrFail($task->project_id) : null;
             $identity = $keys->reserve($scope, $project);
             $copy = $scope->tasks()->create([
-                ...$task->only(['project_id', 'assignee_id', 'is_agent_delegatable', 'delegated_agent_id', 'kpi_id', 'title', 'description', 'result', 'status', 'priority']),
+                ...$task->only(['project_id', 'assignee_id', 'is_agent_delegatable', 'delegated_agent_id', 'kpi_id', 'title', 'description', 'result', 'agent_notes', 'status', 'priority']),
                 ...$identity,
                 'due_at' => $data['planned_on'].' 12:00:00',
                 'completed_at' => null,

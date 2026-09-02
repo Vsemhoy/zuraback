@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-#[Fillable(['scope_id', 'project_id', 'parent_id', 'number', 'task_key', 'created_by', 'assignee_id', 'customer_id', 'is_agent_delegatable', 'delegated_agent_id', 'approved_by', 'kpi_id', 'title', 'description', 'result', 'status', 'priority', 'due_at', 'completed_at', 'approved_at', 'tracked_seconds', 'is_pinned', 'sort_order', 'meta'])]
+#[Fillable(['scope_id', 'project_id', 'parent_id', 'number', 'task_key', 'created_by', 'assignee_id', 'customer_id', 'is_agent_delegatable', 'delegated_agent_id', 'approved_by', 'kpi_id', 'title', 'description', 'result', 'agent_notes', 'status', 'priority', 'due_at', 'completed_at', 'approved_at', 'tracked_seconds', 'is_pinned', 'sort_order', 'meta'])]
 class Task extends DomainModel
 {
     use HasEntityLinks, SoftDeletes;

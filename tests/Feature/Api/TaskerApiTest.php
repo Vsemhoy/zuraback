@@ -223,6 +223,32 @@ class TaskerApiTest extends TestCase
             ->assertJsonPath('data.assignee', null);
     }
 
+    public function test_agent_notes_are_stored_as_a_separate_task_document(): void
+    {
+        [$user, $scope] = $this->workspace();
+
+        $task = $this->actingAs($user)->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/tasks", [
+                'title' => 'Investigate integration',
+                'agent_notes' => "## Agent context\n\nInitial hypothesis.",
+            ])
+            ->assertCreated()
+            ->assertJsonPath('data.agent_notes', "## Agent context\n\nInitial hypothesis.")
+            ->json('data');
+
+        $this->withHeaders(self::HEADERS)
+            ->patchJson("/api/scopes/{$scope->id}/tasks/{$task['id']}", [
+                'agent_notes' => "## Agent answer\n\nThe integration is healthy.",
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.agent_notes', "## Agent answer\n\nThe integration is healthy.");
+
+        $this->assertDatabaseHas('tasks', [
+            'id' => $task['id'],
+            'agent_notes' => "## Agent answer\n\nThe integration is healthy.",
+        ]);
+    }
+
     public function test_blocker_is_audited_restores_status_and_keeps_history(): void
     {
         [$user, $scope] = $this->workspace();

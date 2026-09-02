@@ -20,6 +20,7 @@ class UpdateTaskRequest extends WorkspaceRequest
             'title' => ['sometimes', 'string', 'max:255'],
             'description' => ['sometimes', 'nullable', 'string'],
             'result' => ['sometimes', 'nullable', 'string'],
+            'agent_notes' => ['sometimes', 'nullable', 'string'],
             'status' => ['sometimes', 'in:scheduled,todo,in_progress,blocked,review,done,cancelled'],
             'priority' => ['sometimes', 'integer', 'between:1,5'],
             'due_at' => ['sometimes', 'nullable', 'date'],
