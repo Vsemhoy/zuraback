@@ -14,6 +14,6 @@ class EventResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
-        return parent::toArray($request);
+        return [...parent::toArray($request), 'comments_allowed' => $this->comments_enabled ?? $this->project?->event_comments_enabled ?? true];
     }
 }

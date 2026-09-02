@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['scope_id', 'name', 'description', 'color', 'background_color', 'icon', 'sort_order', 'is_default', 'is_archived'])]
+#[Fillable(['scope_id', 'code', 'name', 'description', 'color', 'background_color', 'icon', 'sort_order', 'is_default', 'is_archived'])]
 class EventType extends DomainModel
 {
     public function scope(): BelongsTo
