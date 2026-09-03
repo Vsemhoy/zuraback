@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Project;
+use App\Models\ProjectMember;
 use App\Models\Scope;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -118,7 +119,7 @@ class ContractorApiTest extends TestCase
         $response->assertOk()
             ->assertHeader('Content-Type', 'text/markdown; charset=UTF-8')
             ->assertSee('# Zuratax Agent API', false)
-            ->assertSee('Specification version: 2026-09-04.2', false)
+            ->assertSee('Specification version: 2026-09-04.5', false)
             ->assertSee('/api/agent/scopes/{scope}/lore/context', false)
             ->assertSee('Working language: **Russian** (`ru`)', false)
             ->assertSee('answers in Russian', false)
@@ -129,6 +130,41 @@ class ContractorApiTest extends TestCase
             ->assertSee($scope->id, false)
             ->assertDontSee($token, false);
         $this->assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
+    }
+
+    public function test_agent_can_create_lore_with_the_minimal_documented_payload(): void
+    {
+        [$owner, $scope] = $this->workspace();
+        $project = $this->project($scope, $owner, 'LOR');
+        $agent = User::factory()->agent()->create(['created_by' => $owner->id]);
+        $scope->members()->create([
+            'user_id' => $agent->id,
+            'role' => 'observer',
+            'permissions' => ['allow' => ['task.view', 'task.update'], 'deny' => []],
+            'project_access_mode' => 'restricted',
+            'joined_at' => now(),
+        ]);
+        ProjectMember::query()->create([
+            'project_id' => $project->id,
+            'user_id' => $agent->id,
+            'assigned_by' => $owner->id,
+            'permissions' => ['allow' => ['task.view', 'task.update'], 'deny' => []],
+        ]);
+        $token = $agent->createToken('Lore client', ['task.view', 'task.update'])->plainTextToken;
+
+        $this->withToken($token)->postJson("/api/agent/scopes/{$scope->id}/lore", [
+            'code' => 'LOR-MINIMAL',
+            'project_id' => $project->id,
+            'title' => 'Minimal agent Lore',
+            'content' => "# Rule\n\nThe minimal payload works.",
+            'tags' => ['lore', 'agent'],
+        ])->assertOk()
+            ->assertJsonPath('data.type', 'decision')
+            ->assertJsonPath('data.importance', 'mechanic')
+            ->assertJsonPath('data.criticality', 'informational')
+            ->assertJsonPath('data.visibility', 'scope')
+            ->assertJsonPath('data.current_revision.status', 'active')
+            ->assertJsonPath('data.current_revision.title', 'Minimal agent Lore');
     }
 
     public function test_agent_can_use_booker_routes_only_with_explicit_book_access(): void

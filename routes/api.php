@@ -47,7 +47,9 @@ Route::prefix('agent')->middleware(['auth:sanctum', 'active', 'agent'])->group(f
         Route::post('/lore', [LoreController::class, 'store'])->middleware('scope.ability:task.update');
         Route::get('/lore/{loreEntry}', [LoreController::class, 'show'])->middleware('scope.ability:task.view');
         Route::patch('/lore/{loreEntry}', [LoreController::class, 'update'])->middleware('scope.ability:task.update');
+        Route::delete('/lore/{loreEntry}', [LoreController::class, 'destroy'])->middleware('scope.ability:task.delete');
         Route::post('/lore/{loreEntry}/revisions', [LoreController::class, 'revise'])->middleware('scope.ability:task.update');
+        Route::patch('/lore/{loreEntry}/revisions/{loreRevision}', [LoreController::class, 'updateRevision'])->middleware('scope.ability:task.update');
         Route::post('/links', [EntityLinkController::class, 'store'])->middleware('scope.ability:task.update');
         Route::post('/imports/tasker', [AgentTaskerImportController::class, 'store'])->middleware(['scope.ability:task.create', 'scope.ability:task.update']);
         Route::post('/imports/booker', [AgentBookerImportController::class, 'store'])->middleware(['scope.ability:book.create', 'scope.ability:book.update']);

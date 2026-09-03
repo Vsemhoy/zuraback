@@ -56,6 +56,13 @@ class LoreController extends Controller
 
     public function store(Request $request, Scope $scope): JsonResponse
     {
+        $request->merge([
+            'type' => $request->input('type', 'decision'),
+            'importance' => $request->input('importance', 'mechanic'),
+            'criticality' => $request->input('criticality', 'informational'),
+            'visibility' => $request->input('visibility', 'scope'),
+            'status' => $request->input('status', 'active'),
+        ]);
         $data = $request->validate($this->entryRules(true) + $this->revisionRules(true));
         $this->assertProject($request, $scope, $data['project_id'] ?? null, 'task.update');
         $this->assertArea($scope, $data['area_id'] ?? null, $data['project_id'] ?? null);
@@ -91,12 +98,29 @@ class LoreController extends Controller
         return $this->show($request, $scope, $loreEntry->fresh());
     }
 
+    public function updateRevision(Request $request, Scope $scope, LoreEntry $loreEntry, LoreRevision $loreRevision): JsonResponse
+    {
+        $this->assertVisible($request, $scope, $loreEntry, 'task.update');
+        abort_unless($loreRevision->lore_entry_id === $loreEntry->id, 404);
+        $currentId = $loreEntry->revisions()->where('status', 'active')->where('effective_from', '<=', now())->where(fn (Builder $q) => $q->whereNull('effective_until')->orWhere('effective_until', '>', now()))->orderByDesc('version')->value('id');
+        abort_unless($currentId === $loreRevision->id, 409, 'Only the currently effective revision can be edited in place.');
+        $loreRevision->update($request->validate(['title'=>['sometimes','string','max:200'],'content'=>['sometimes','string'],'reason'=>['sometimes','nullable','string']]));
+        return $this->show($request, $scope, $loreEntry->fresh());
+    }
+
     public function star(Request $request, Scope $scope, LoreEntry $loreEntry): JsonResponse
     {
         $this->assertVisible($request, $scope, $loreEntry);
         $starred = $request->validate(['starred' => ['required','boolean']])['starred'];
         $starred ? $loreEntry->starredBy()->syncWithoutDetaching([$request->user()->id]) : $loreEntry->starredBy()->detach($request->user()->id);
         return response()->json(['data' => ['id' => $loreEntry->id, 'is_starred' => $starred]]);
+    }
+
+    public function destroy(Request $request, Scope $scope, LoreEntry $loreEntry): \Illuminate\Http\Response
+    {
+        $this->assertVisible($request, $scope, $loreEntry, 'task.delete');
+        $loreEntry->delete();
+        return response()->noContent();
     }
 
     public function areas(Request $request, Scope $scope): JsonResponse

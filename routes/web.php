@@ -116,7 +116,9 @@ Route::prefix('api')->middleware(['spa.request', 'auth', 'active'])->group(funct
         Route::post('/lore', [LoreController::class, 'store'])->middleware(['scope.actor', 'scope.ability:task.update']);
         Route::get('/lore/{loreEntry}', [LoreController::class, 'show'])->middleware(['scope.actor', 'scope.ability:task.view']);
         Route::patch('/lore/{loreEntry}', [LoreController::class, 'update'])->middleware(['scope.actor', 'scope.ability:task.update']);
+        Route::delete('/lore/{loreEntry}', [LoreController::class, 'destroy'])->middleware(['scope.actor', 'scope.ability:task.delete']);
         Route::post('/lore/{loreEntry}/revisions', [LoreController::class, 'revise'])->middleware(['scope.actor', 'scope.ability:task.update']);
+        Route::patch('/lore/{loreEntry}/revisions/{loreRevision}', [LoreController::class, 'updateRevision'])->middleware(['scope.actor', 'scope.ability:task.update']);
         Route::patch('/lore/{loreEntry}/star', [LoreController::class, 'star'])->middleware(['scope.actor', 'scope.ability:task.view']);
         Route::get('/books', [BookController::class, 'index'])->middleware(['scope.actor', 'book.access:book.view']);
         Route::get('/book-comments/recent', [BookConversationController::class, 'recent'])->middleware(['scope.actor', 'book.access:book.view']);
