@@ -47,6 +47,11 @@ class Scope extends DomainModel
         return $this->hasMany(Fact::class);
     }
 
+    public function loreEntries(): HasMany
+    {
+        return $this->hasMany(LoreEntry::class);
+    }
+
     public function books(): HasMany
     {
         return $this->hasMany(Book::class);
