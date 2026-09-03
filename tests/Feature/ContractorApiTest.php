@@ -118,7 +118,7 @@ class ContractorApiTest extends TestCase
         $response->assertOk()
             ->assertHeader('Content-Type', 'text/markdown; charset=UTF-8')
             ->assertSee('# Zuratax Agent API', false)
-            ->assertSee('Specification version: 2026-09-04.1', false)
+            ->assertSee('Specification version: 2026-09-04.2', false)
             ->assertSee('/api/agent/scopes/{scope}/lore/context', false)
             ->assertSee('Working language: **Russian** (`ru`)', false)
             ->assertSee('answers in Russian', false)

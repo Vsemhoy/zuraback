@@ -38,7 +38,7 @@ class AgentSpecificationController extends Controller
         $lines = [
             '# Zuratax Agent API',
             '',
-            'Specification version: 2026-09-04.1',
+            'Specification version: 2026-09-04.2',
             'Generated at: '.now()->toIso8601String(),
             '',
             '## Identity and access',
@@ -93,6 +93,7 @@ class AgentSpecificationController extends Controller
             '- `GET /api/agent/scopes/{scope}/lore/{entry}` — one record with its complete immutable revision timeline.',
             '- `POST /api/agent/scopes/{scope}/lore` — create a Lore chain; requires `task.update`.',
             '- `POST /api/agent/scopes/{scope}/lore/{entry}/revisions` — publish a semantic revision instead of overwriting an earlier decision.',
+            '- Lore revision `content` and `reason` are Markdown. Preserve headings, lists, tables, task lists, links, and fenced code blocks; do not flatten them to plain text.',
             '- `POST /api/agent/scopes/{scope}/links` — link two accessible entities.',
             '- `POST /api/agent/scopes/{scope}/imports/tasker` — idempotent Tasker import; send `dry_run: true` first.',
             '- `POST /api/agent/scopes/{scope}/imports/booker` — idempotent full-book import preserving pages, block types, and block versions; send one book per request and use `dry_run: true` first.',
