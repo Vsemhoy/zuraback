@@ -78,17 +78,33 @@ class LoreController extends Controller
     public function update(Request $request, Scope $scope, LoreEntry $loreEntry): JsonResponse
     {
         $this->assertVisible($request, $scope, $loreEntry, 'task.update');
-        $data = $request->validate($this->entryRules(false));
+        $data = $request->validate($this->entryRules(false) + $this->editorialRevisionRules());
         if (array_key_exists('project_id', $data)) $this->assertProject($request, $scope, $data['project_id'], 'task.update');
         if (array_key_exists('area_id', $data)) $this->assertArea($scope, $data['area_id'], $data['project_id'] ?? $loreEntry->project_id);
-        $loreEntry->update(collect($data)->except('tags')->all());
-        if (array_key_exists('tags', $data)) $this->syncTags($loreEntry, $scope, $data['tags']);
+        DB::transaction(function () use ($scope, $loreEntry, $data): void {
+            $entryData = collect($data)->only(['project_id','area_id','code','type','importance','criticality','visibility'])->all();
+            if (array_key_exists('code', $entryData)) $entryData['code'] = Str::upper($entryData['code']);
+            if ($entryData !== []) $loreEntry->update($entryData);
+            if (array_key_exists('tags', $data)) $this->syncTags($loreEntry, $scope, $data['tags']);
+
+            $revisionData = collect($data)->only(['title','content','reason'])->all();
+            if ($revisionData !== []) {
+                $current = $this->currentRevision($loreEntry);
+                abort_unless($current, 409, 'This Lore entry has no currently effective revision to edit.');
+                $current->update($revisionData);
+            }
+        });
         return $this->show($request, $scope, $loreEntry->fresh());
     }
 
     public function revise(Request $request, Scope $scope, LoreEntry $loreEntry): JsonResponse
     {
         $this->assertVisible($request, $scope, $loreEntry, 'task.update');
+        $current = $this->currentRevision($loreEntry);
+        $request->merge([
+            'title' => $request->input('title', $current?->title),
+            'status' => $request->input('status', 'active'),
+        ]);
         $data = $request->validate($this->revisionRules(true));
         DB::transaction(function () use ($request, $loreEntry, $data): void {
             $from = Carbon::parse($data['effective_from'] ?? now());
@@ -102,8 +118,7 @@ class LoreController extends Controller
     {
         $this->assertVisible($request, $scope, $loreEntry, 'task.update');
         abort_unless($loreRevision->lore_entry_id === $loreEntry->id, 404);
-        $currentId = $loreEntry->revisions()->where('status', 'active')->where('effective_from', '<=', now())->where(fn (Builder $q) => $q->whereNull('effective_until')->orWhere('effective_until', '>', now()))->orderByDesc('version')->value('id');
-        abort_unless($currentId === $loreRevision->id, 409, 'Only the currently effective revision can be edited in place.');
+        abort_unless($this->currentRevision($loreEntry)?->id === $loreRevision->id, 409, 'Only the currently effective revision can be edited in place.');
         $loreRevision->update($request->validate(['title'=>['sometimes','string','max:200'],'content'=>['sometimes','string'],'reason'=>['sometimes','nullable','string']]));
         return $this->show($request, $scope, $loreEntry->fresh());
     }
@@ -174,6 +189,14 @@ class LoreController extends Controller
         $entry->tags()->sync($ids);
     }
     private function importanceRank(string $importance): int { return ['foundational'=>0,'architectural'=>1,'mechanic'=>2,'detail'=>3][$importance] ?? 9; }
+    private function currentRevision(LoreEntry $entry): ?LoreRevision
+    {
+        return $entry->revisions()->where('status', 'active')->where('effective_from', '<=', now())->where(fn (Builder $q) => $q->whereNull('effective_until')->orWhere('effective_until', '>', now()))->orderByDesc('version')->first();
+    }
+    private function editorialRevisionRules(): array
+    {
+        return ['title'=>['sometimes','string','max:200'],'content'=>['sometimes','string'],'reason'=>['sometimes','nullable','string']];
+    }
     private function entryRules(bool $required): array
     {
         $p=$required?'required':'sometimes'; return ['code'=>[$p,'string','max:80'],'project_id'=>['sometimes','nullable','ulid'],'area_id'=>['sometimes','nullable','ulid'],'type'=>[$p,'in:decision,mechanic,convention,constraint,hypothesis,question,context,incident,handoff'],'importance'=>[$p,'in:foundational,architectural,mechanic,detail'],'criticality'=>[$p,'in:informational,warning,compatibility,critical'],'visibility'=>[$p,'in:private,scope,public'],'tags'=>['sometimes','array'],'tags.*'=>['string','max:80']];

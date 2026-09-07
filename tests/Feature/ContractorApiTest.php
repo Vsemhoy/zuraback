@@ -119,7 +119,7 @@ class ContractorApiTest extends TestCase
         $response->assertOk()
             ->assertHeader('Content-Type', 'text/markdown; charset=UTF-8')
             ->assertSee('# Zuratax Agent API', false)
-            ->assertSee('Specification version: 2026-09-04.5', false)
+            ->assertSee('Specification version: 2026-09-08.1', false)
             ->assertSee('/api/agent/scopes/{scope}/lore/context', false)
             ->assertSee('Working language: **Russian** (`ru`)', false)
             ->assertSee('answers in Russian', false)
@@ -165,6 +165,58 @@ class ContractorApiTest extends TestCase
             ->assertJsonPath('data.visibility', 'scope')
             ->assertJsonPath('data.current_revision.status', 'active')
             ->assertJsonPath('data.current_revision.title', 'Minimal agent Lore');
+    }
+
+    public function test_agent_can_edit_current_lore_and_publish_a_minimal_semantic_revision(): void
+    {
+        [$owner, $scope] = $this->workspace();
+        $project = $this->project($scope, $owner, 'LRV');
+        $agent = User::factory()->agent()->create(['created_by' => $owner->id]);
+        $scope->members()->create([
+            'user_id' => $agent->id,
+            'role' => 'observer',
+            'permissions' => ['allow' => ['task.view', 'task.update'], 'deny' => []],
+            'project_access_mode' => 'restricted',
+            'joined_at' => now(),
+        ]);
+        ProjectMember::query()->create([
+            'project_id' => $project->id,
+            'user_id' => $agent->id,
+            'assigned_by' => $owner->id,
+            'permissions' => ['allow' => ['task.view', 'task.update'], 'deny' => []],
+        ]);
+        $token = $agent->createToken('Lore revision client', ['task.view', 'task.update'])->plainTextToken;
+
+        $entry = $this->withToken($token)->postJson("/api/agent/scopes/{$scope->id}/lore", [
+            'code' => 'LRV-EDIT',
+            'project_id' => $project->id,
+            'title' => 'Stable title',
+            'content' => '# Version one',
+        ])->assertOk()->json('data');
+
+        $this->withToken($token)->patchJson("/api/agent/scopes/{$scope->id}/lore/{$entry['id']}", [
+            'content' => '# Version one, corrected',
+            'reason' => 'Editorial correction',
+        ])->assertOk()
+            ->assertJsonPath('data.current_revision.version', 1)
+            ->assertJsonPath('data.current_revision.content', '# Version one, corrected');
+
+        $revised = $this->withToken($token)->postJson("/api/agent/scopes/{$scope->id}/lore/{$entry['id']}/revisions", [
+            'content' => '# Version two',
+            'reason' => 'The decision changed',
+        ])->assertOk()
+            ->assertJsonPath('data.current_revision.version', 2)
+            ->assertJsonPath('data.current_revision.title', 'Stable title')
+            ->assertJsonPath('data.current_revision.status', 'active')
+            ->json('data');
+
+        $this->withToken($token)->patchJson("/api/agent/scopes/{$scope->id}/lore/{$entry['id']}/revisions/{$revised['current_revision']['id']}", [
+            'content' => '# Version two, corrected',
+        ])->assertOk()->assertJsonPath('data.current_revision.content', '# Version two, corrected');
+
+        $this->assertDatabaseCount('lore_revisions', 2);
+        $this->assertDatabaseHas('lore_revisions', ['lore_entry_id' => $entry['id'], 'version' => 1]);
+        $this->assertDatabaseHas('lore_revisions', ['lore_entry_id' => $entry['id'], 'version' => 2, 'status' => 'active']);
     }
 
     public function test_agent_can_use_booker_routes_only_with_explicit_book_access(): void
