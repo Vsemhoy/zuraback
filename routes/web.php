@@ -58,7 +58,9 @@ Route::prefix('api')->middleware(['spa.request', 'auth', 'active'])->group(funct
         Route::put('/contractors/{contractor}/access', [ContractorController::class, 'updateAccess'])->whereUlid('contractor');
         Route::post('/contractors/{contractor}/scopes', [ContractorController::class, 'addScopes'])->whereUlid('contractor')->middleware('scope.ability:contractor.manage');
         Route::post('/contractors/{contractor}/tokens', [ContractorController::class, 'storeToken'])->whereUlid('contractor');
+        Route::patch('/contractors/{contractor}/tokens/{token}', [ContractorController::class, 'updateToken'])->whereUlid('contractor')->whereNumber('token');
         Route::delete('/contractors/{contractor}/tokens/{token}', [ContractorController::class, 'destroyToken'])->whereUlid('contractor');
+        Route::get('/contractors/{contractor}/activity', [ContractorController::class, 'activity'])->whereUlid('contractor');
         Route::delete('/contractors/{contractor}', [ContractorController::class, 'destroy'])->whereUlid('contractor');
         Route::post('/contractors/{contractor}/act', [ContractorController::class, 'act'])->whereUlid('contractor')->middleware('scope.ability:contractor.manage');
         Route::get('/projects', [ProjectController::class, 'index'])->middleware(['scope.actor', 'scope.ability:task.view']);

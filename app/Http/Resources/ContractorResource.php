@@ -47,7 +47,9 @@ class ContractorResource extends JsonResource
             'tokens' => $this->when($this->isAgent(), fn () => $this->tokens->map(fn ($token): array => [
                 'id' => $token->id,
                 'name' => $token->name,
+                'comment' => $token->comment,
                 'abilities' => $token->abilities,
+                'created_at' => $token->created_at,
                 'last_used_at' => $token->last_used_at,
                 'expires_at' => $token->expires_at,
             ])->values()),

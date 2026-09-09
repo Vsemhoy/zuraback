@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\ActivityLog;
 use App\Models\Project;
 use App\Models\ProjectMember;
 use App\Models\Scope;
@@ -97,6 +98,66 @@ class ContractorApiTest extends TestCase
         auth()->guard('web')->logout();
         auth()->forgetGuards();
         $this->withToken($issued['token'])->getJson('/api/agent/me')->assertUnauthorized();
+    }
+
+    public function test_agent_tokens_have_editable_comments_and_agent_api_requests_are_audited(): void
+    {
+        [$owner, $scope] = $this->workspace();
+        $project = $this->project($scope, $owner, 'AUD');
+        $agent = User::factory()->agent()->create(['name' => 'Audited Agent', 'created_by' => $owner->id]);
+        $scope->members()->create([
+            'user_id' => $agent->id,
+            'role' => 'observer',
+            'permissions' => ['allow' => ['task.view', 'task.create'], 'deny' => []],
+            'project_access_mode' => 'restricted',
+            'joined_at' => now(),
+        ]);
+        ProjectMember::query()->create([
+            'project_id' => $project->id,
+            'user_id' => $agent->id,
+            'assigned_by' => $owner->id,
+            'permissions' => ['allow' => ['task.view', 'task.create'], 'deny' => []],
+        ]);
+
+        $issued = $this->actingAs($owner)->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/contractors/{$agent->id}/tokens", [
+                'name' => 'Office Codex',
+                'comment' => 'WMS topic on office workstation',
+                'abilities' => ['task.view', 'task.create'],
+            ])->assertCreated()
+            ->assertJsonPath('data.comment', 'WMS topic on office workstation')
+            ->json('data');
+
+        $this->withHeaders(self::HEADERS)
+            ->patchJson("/api/scopes/{$scope->id}/contractors/{$agent->id}/tokens/{$issued['id']}", [
+                'comment' => 'WMS-31 transfer documents',
+            ])->assertOk()->assertJsonPath('data.comment', 'WMS-31 transfer documents');
+
+        auth()->guard('web')->logout();
+        auth()->forgetGuards();
+        $this->withToken($issued['token'])->getJson('/api/agent/me')->assertOk();
+        $this->withToken($issued['token'])->postJson("/api/agent/scopes/{$scope->id}/tasks", [
+            'project_id' => $project->id,
+            'title' => 'Audited API write',
+            'api_key' => 'must-not-be-logged',
+        ])->assertCreated();
+
+        $this->assertDatabaseHas('activity_logs', [
+            'actor_id' => $agent->id,
+            'subject_type' => 'agent_api',
+            'action' => 'agent.api.post',
+        ]);
+        $audit = ActivityLog::query()->where('actor_id', $agent->id)->where('action', 'agent.api.post')->latest()->firstOrFail();
+        $this->assertSame("/api/agent/scopes/{$scope->id}/tasks", $audit->context['path']);
+        $this->assertSame('WMS-31 transfer documents', $audit->context['token_comment']);
+        $this->assertSame('[redacted]', $audit->context['payload']['api_key']);
+        $this->assertSame(201, $audit->after['status']);
+
+        $this->actingAs($owner)->withHeaders(self::HEADERS)
+            ->getJson("/api/scopes/{$scope->id}/contractors/{$agent->id}/activity")
+            ->assertOk()
+            ->assertJsonFragment(['action' => 'agent.api.post'])
+            ->assertJsonFragment(['token_comment' => 'WMS-31 transfer documents']);
     }
 
     public function test_agent_can_fetch_the_current_markdown_specification_without_exposing_its_token(): void

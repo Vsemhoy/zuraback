@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\EnsureAgentAccount;
+use App\Http\Middleware\AuditAgentApiRequest;
 use App\Http\Middleware\EnsureBookAccess;
 use App\Http\Middleware\EnsureContractorAbility;
 use App\Http\Middleware\EnsureScopeMember;
@@ -29,6 +30,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'spa.request' => EnsureSpaRequestIsTrusted::class,
             'scope.member' => EnsureScopeMember::class,
             'agent' => EnsureAgentAccount::class,
+            'agent.audit' => AuditAgentApiRequest::class,
             'scope.ability' => EnsureContractorAbility::class,
             'scope.actor' => ResolveContractorActor::class,
             'book.access' => EnsureBookAccess::class,

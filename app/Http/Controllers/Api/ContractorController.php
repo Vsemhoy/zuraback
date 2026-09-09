@@ -11,6 +11,7 @@ use App\Http\Resources\ContractorResource;
 use App\Models\ActivityLog;
 use App\Models\BookPage;
 use App\Models\ContractorDelegation;
+use App\Models\LoreRevision;
 use App\Models\ProjectMember;
 use App\Models\Scope;
 use App\Models\Task;
@@ -277,14 +278,82 @@ class ContractorController extends Controller
             $data['abilities'],
             isset($data['expires_at']) ? Carbon::parse($data['expires_at']) : null,
         );
+        $token->accessToken->forceFill(['comment' => $data['comment'] ?? null])->save();
 
         return response()->json(['data' => [
             'id' => $token->accessToken->id,
             'name' => $token->accessToken->name,
+            'comment' => $token->accessToken->comment,
             'abilities' => $token->accessToken->abilities,
             'expires_at' => $token->accessToken->expires_at,
             'token' => $token->plainTextToken,
         ]], Response::HTTP_CREATED);
+    }
+
+    public function updateToken(Request $request, Scope $scope, User $contractor, int $token): JsonResponse
+    {
+        $this->assertContractor($scope, $contractor);
+        $this->assertCanManage($request, $scope, $contractor);
+        $accessToken = $contractor->tokens()->findOrFail($token);
+        $data = $request->validate(['comment' => ['nullable', 'string', 'max:500']]);
+        $accessToken->forceFill(['comment' => $data['comment'] ?? null])->save();
+
+        return response()->json(['data' => [
+            'id' => $accessToken->id,
+            'name' => $accessToken->name,
+            'comment' => $accessToken->comment,
+            'abilities' => $accessToken->abilities,
+            'created_at' => $accessToken->created_at,
+            'last_used_at' => $accessToken->last_used_at,
+            'expires_at' => $accessToken->expires_at,
+        ]]);
+    }
+
+    public function activity(Request $request, Scope $scope, User $contractor): JsonResponse
+    {
+        $this->assertContractor($scope, $contractor);
+        $this->assertCanManage($request, $scope, $contractor);
+        $limit = min(max((int) $request->query('limit', 100), 1), 250);
+
+        $logs = ActivityLog::query()
+            ->where('scope_id', $scope->id)
+            ->where('actor_id', $contractor->id)
+            ->latest()
+            ->limit($limit)
+            ->get()
+            ->map(fn (ActivityLog $log): array => [
+                'id' => $log->id,
+                'kind' => $log->subject_type === 'agent_api' ? 'api' : 'domain',
+                'action' => $log->action,
+                'subject_type' => $log->subject_type,
+                'subject_id' => $log->subject_id,
+                'before' => $log->before,
+                'after' => $log->after,
+                'context' => $log->context,
+                'ip_address' => $log->ip_address,
+                'user_agent' => $log->user_agent,
+                'created_at' => $log->created_at,
+            ]);
+
+        $lore = LoreRevision::query()
+            ->where('created_by', $contractor->id)
+            ->whereHas('entry', fn ($query) => $query->where('scope_id', $scope->id))
+            ->with('entry:id,scope_id,project_id,code')
+            ->latest()
+            ->limit($limit)
+            ->get()
+            ->map(fn (LoreRevision $revision): array => [
+                'id' => 'lore-'.$revision->id,
+                'kind' => 'lore',
+                'action' => $revision->version === 1 ? 'lore.created' : 'lore.revision_created',
+                'subject_type' => 'lore',
+                'subject_id' => $revision->lore_entry_id,
+                'after' => ['code' => $revision->entry?->code, 'version' => $revision->version, 'title' => $revision->title, 'status' => $revision->status],
+                'context' => ['project_id' => $revision->entry?->project_id],
+                'created_at' => $revision->created_at,
+            ]);
+
+        return response()->json(['data' => $logs->concat($lore)->sortByDesc('created_at')->take($limit)->values()]);
     }
 
     public function destroyToken(Request $request, Scope $scope, User $contractor, int $token): Response

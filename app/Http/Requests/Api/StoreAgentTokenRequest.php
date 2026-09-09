@@ -26,6 +26,7 @@ class StoreAgentTokenRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:120'],
+            'comment' => ['sometimes', 'nullable', 'string', 'max:500'],
             'abilities' => ['required', 'array', 'min:1'],
             'abilities.*' => ['string', 'distinct', Rule::in(ContractorAccessService::ABILITIES)],
             'expires_at' => ['sometimes', 'nullable', 'date', 'after:now'],
