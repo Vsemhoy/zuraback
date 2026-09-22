@@ -193,7 +193,7 @@ class ContractorController extends Controller
         $contractor->update($data);
 
         if (! $contractor->isAgent()) {
-            $contractor->tokens()->delete();
+            $contractor->tokens()->whereNull('revoked_at')->update(['revoked_at' => now()]);
         }
 
         return new ContractorResource($contractor->fresh()->load($this->relations($scope, $request->user())));
@@ -295,7 +295,7 @@ class ContractorController extends Controller
         $this->assertContractor($scope, $contractor);
         $this->assertCanManage($request, $scope, $contractor);
         $accessToken = $contractor->tokens()->findOrFail($token);
-        $data = $request->validate(['comment' => ['nullable', 'string', 'max:500']]);
+        $data = $request->validate(['comment' => ['present', 'nullable', 'string', 'max:500']]);
         $accessToken->forceFill(['comment' => $data['comment'] ?? null])->save();
 
         return response()->json(['data' => [
@@ -306,6 +306,7 @@ class ContractorController extends Controller
             'created_at' => $accessToken->created_at,
             'last_used_at' => $accessToken->last_used_at,
             'expires_at' => $accessToken->expires_at,
+            'revoked_at' => $accessToken->revoked_at,
         ]]);
     }
 
@@ -313,16 +314,36 @@ class ContractorController extends Controller
     {
         $this->assertContractor($scope, $contractor);
         $this->assertCanManage($request, $scope, $contractor);
-        $limit = min(max((int) $request->query('limit', 100), 1), 250);
+        $filters = $request->validate([
+            'limit' => ['sometimes', 'integer', 'min:1', 'max:100'],
+            'cursor_at' => ['nullable', 'date_format:Y-m-d H:i:s', 'required_with:cursor_id'],
+            'cursor_id' => ['nullable', 'ulid', 'required_with:cursor_at'],
+            'token_id' => ['nullable', 'integer', 'min:1'],
+        ]);
+        $limit = (int) ($filters['limit'] ?? 30);
+        if (! empty($filters['token_id'])) {
+            $contractor->tokens()->findOrFail($filters['token_id']);
+        }
+        $beforeCursor = function ($query) use ($filters): void {
+            if (! empty($filters['cursor_at'])) {
+                $query->where(function ($before) use ($filters): void {
+                    $before->where('created_at', '<', $filters['cursor_at'])
+                        ->orWhere(fn ($same) => $same->where('created_at', $filters['cursor_at'])->where('id', '<', $filters['cursor_id']));
+                });
+            }
+        };
 
         $logs = ActivityLog::query()
             ->where('scope_id', $scope->id)
             ->where('actor_id', $contractor->id)
-            ->latest()
-            ->limit($limit)
+            ->when(! empty($filters['token_id']), fn ($query) => $query->where('context->token_id', (int) $filters['token_id']))
+            ->tap($beforeCursor)
+            ->latest()->orderByDesc('id')
+            ->limit($limit + 1)
             ->get()
             ->map(fn (ActivityLog $log): array => [
                 'id' => $log->id,
+                '_cursor' => ['at' => $log->created_at->format('Y-m-d H:i:s'), 'id' => $log->id],
                 'kind' => $log->subject_type === 'agent_api' ? 'api' : 'domain',
                 'action' => $log->action,
                 'subject_type' => $log->subject_type,
@@ -336,14 +357,18 @@ class ContractorController extends Controller
             ]);
 
         $lore = LoreRevision::query()
+            ->select(['id', 'lore_entry_id', 'version', 'title', 'status', 'created_at'])
             ->where('created_by', $contractor->id)
+            ->when(! empty($filters['token_id']), fn ($query) => $query->whereRaw('1 = 0'))
             ->whereHas('entry', fn ($query) => $query->where('scope_id', $scope->id))
             ->with('entry:id,scope_id,project_id,code')
-            ->latest()
-            ->limit($limit)
+            ->tap($beforeCursor)
+            ->latest()->orderByDesc('id')
+            ->limit($limit + 1)
             ->get()
             ->map(fn (LoreRevision $revision): array => [
                 'id' => 'lore-'.$revision->id,
+                '_cursor' => ['at' => $revision->created_at->format('Y-m-d H:i:s'), 'id' => $revision->id],
                 'kind' => 'lore',
                 'action' => $revision->version === 1 ? 'lore.created' : 'lore.revision_created',
                 'subject_type' => 'lore',
@@ -353,14 +378,28 @@ class ContractorController extends Controller
                 'created_at' => $revision->created_at,
             ]);
 
-        return response()->json(['data' => $logs->concat($lore)->sortByDesc('created_at')->take($limit)->values()]);
+        $combined = $logs->concat($lore)->sort(fn ($a, $b) => strcmp($b['_cursor']['at'], $a['_cursor']['at']) ?: strcmp($b['_cursor']['id'], $a['_cursor']['id']))->values();
+        $items = $combined->take($limit);
+        $hasMore = $combined->count() > $limit;
+
+        return response()->json([
+            'data' => $items->map(function (array $item): array {
+                unset($item['_cursor']);
+
+                return $item;
+            })->values(),
+            'meta' => ['has_more' => $hasMore, 'next_cursor' => $hasMore ? $items->last()['_cursor'] : null],
+        ]);
     }
 
     public function destroyToken(Request $request, Scope $scope, User $contractor, int $token): Response
     {
         $this->assertContractor($scope, $contractor);
         $this->assertCanManage($request, $scope, $contractor);
-        $contractor->tokens()->whereKey($token)->delete();
+        $accessToken = $contractor->tokens()->findOrFail($token);
+        if ($accessToken->revoked_at === null) {
+            $accessToken->forceFill(['revoked_at' => now()])->save();
+        }
 
         return response()->noContent();
     }
@@ -375,7 +414,7 @@ class ContractorController extends Controller
         abort_if($contractor->ownedScopes()->exists(), 422, 'A scope owner cannot be deleted. Transfer or delete their scopes first.');
 
         DB::transaction(function () use ($request, $scope, $contractor): void {
-            $contractor->tokens()->delete();
+            $contractor->tokens()->whereNull('revoked_at')->update(['revoked_at' => now()]);
             $contractor->scopeMemberships()->update(['is_active' => false]);
             $contractor->projectMemberships()->update(['is_active' => false]);
             $contractor->delegatedPersonas()->update(['is_active' => false]);

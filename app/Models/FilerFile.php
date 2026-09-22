@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['scope_id', 'created_by', 'uploaded_by', 'name', 'category', 'visibility', 'disk', 'path', 'mime', 'size', 'sha256'])]
+#[Fillable(['scope_id', 'created_by', 'uploaded_by', 'name', 'description', 'category', 'visibility', 'disk', 'path', 'mime', 'size', 'sha256'])]
 class FilerFile extends DomainModel
 {
     public const CATEGORIES = ['documentation', 'general', 'task', 'event', 'book', 'project', 'user'];
@@ -25,6 +25,6 @@ class FilerFile extends DomainModel
 
     protected function casts(): array
     {
-        return ['size' => 'integer'];
+        return ['size' => 'integer', 'preview_requested_at' => 'datetime'];
     }
 }

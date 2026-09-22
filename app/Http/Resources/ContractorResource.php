@@ -4,6 +4,7 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Carbon;
 
 class ContractorResource extends JsonResource
 {
@@ -52,6 +53,7 @@ class ContractorResource extends JsonResource
                 'created_at' => $token->created_at,
                 'last_used_at' => $token->last_used_at,
                 'expires_at' => $token->expires_at,
+                'revoked_at' => $token->revoked_at ? Carbon::parse($token->revoked_at)->toISOString() : null,
             ])->values()),
         ];
     }

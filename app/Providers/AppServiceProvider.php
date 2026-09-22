@@ -20,6 +20,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
+use Laravel\Sanctum\PersonalAccessToken;
+use Laravel\Sanctum\Sanctum;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -36,6 +38,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Sanctum::authenticateAccessTokensUsing(fn (PersonalAccessToken $token, bool $isValid): bool => $isValid && $token->revoked_at === null);
         Model::preventLazyLoading(! $this->app->isProduction());
 
         Relation::enforceMorphMap([

@@ -4,11 +4,13 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\StoreFilerFileRequest;
+use App\Http\Requests\Api\UpdateFilerFileRequest;
 use App\Models\FilerFile;
 use App\Models\Scope;
 use App\Services\ContractorAccessService;
 use App\Services\ContractorContext;
 use App\Services\FilerAccessService;
+use App\Services\FilerPreviewService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -167,12 +169,51 @@ class FilerController extends Controller
         return $disk->download($file->path, $file->name, ['Content-Type' => 'application/octet-stream', 'X-Content-Type-Options' => 'nosniff', 'Cache-Control' => 'private, no-store']);
     }
 
+    public function update(UpdateFilerFileRequest $request, Scope $scope, FilerFile $file): JsonResponse
+    {
+        abort_unless($this->access->file($this->context->actor($request), $scope, $file, true), 404);
+        $file->update($request->validated());
+
+        return response()->json(['data' => $this->representation($request, $scope, $file->load(['creator', 'attachments.subject']))]);
+    }
+
+    public function preview(Request $request, Scope $scope, FilerFile $file, FilerPreviewService $previews): JsonResponse
+    {
+        abort_unless($this->access->file($this->context->actor($request), $scope, $file), 404);
+
+        return response()->json(['data' => ['status' => $previews->status($file)]]);
+    }
+
+    public function preparePreview(Request $request, Scope $scope, FilerFile $file, FilerPreviewService $previews): JsonResponse
+    {
+        abort_unless($this->access->file($this->context->actor($request), $scope, $file), 404);
+        $status = $previews->request($file);
+
+        return response()->json(['data' => ['status' => $status]], $status === 'pending' ? 202 : 200);
+    }
+
+    public function previewContent(Request $request, Scope $scope, FilerFile $file, FilerPreviewService $previews): StreamedResponse
+    {
+        abort_unless($this->access->file($this->context->actor($request), $scope, $file), 404);
+        abort_unless($previews->status($file) === 'ready', 409, 'Превью ещё не готово.');
+
+        return Storage::disk($file->disk)->download($previews->path($file), 'preview.pdf', [
+            'Content-Type' => 'application/pdf', 'Cache-Control' => 'private, no-store',
+            'X-Content-Type-Options' => 'nosniff', 'Content-Security-Policy' => "sandbox; default-src 'none'",
+        ]);
+    }
+
     public function destroy(Request $request, Scope $scope, FilerFile $file): Response
     {
         abort_unless($this->access->file($this->context->actor($request), $scope, $file, true), 404);
-        $disk = Storage::disk($file->disk);
-        abort_unless(! $disk->exists($file->path) || $disk->delete($file->path), 503, 'Не удалось удалить файл.');
-        $file->delete();
+        DB::transaction(function () use ($file): void {
+            $locked = FilerFile::query()->lockForUpdate()->findOrFail($file->id);
+            $disk = Storage::disk($locked->disk);
+            $preview = app(FilerPreviewService::class)->path($locked);
+            abort_unless(! $disk->exists($preview) || $disk->delete($preview), 503, 'Не удалось удалить превью.');
+            abort_unless(! $disk->exists($locked->path) || $disk->delete($locked->path), 503, 'Не удалось удалить файл.');
+            $locked->delete();
+        });
 
         return response()->noContent();
     }
@@ -181,6 +222,7 @@ class FilerController extends Controller
     {
         return [
             'id' => $file->id, 'name' => $file->name, 'category' => $file->category,
+            'description' => $file->description,
             'visibility' => $file->visibility, 'size' => $file->size, 'mime' => $file->mime,
             'created_at' => $file->created_at, 'creator' => $file->creator?->only(['id', 'name']),
             'can_manage' => $this->access->file($this->context->actor($request), $scope, $file, true),

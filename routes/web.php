@@ -53,6 +53,10 @@ Route::prefix('api')->middleware(['spa.request', 'auth', 'active'])->group(funct
             Route::get('/', [FilerController::class, 'index']);
             Route::get('/targets', [FilerController::class, 'targets']);
             Route::post('/', [FilerController::class, 'store'])->name('filer.store');
+            Route::patch('/{file}', [FilerController::class, 'update'])->whereUlid('file');
+            Route::get('/{file}/preview', [FilerController::class, 'preview'])->whereUlid('file');
+            Route::post('/{file}/preview', [FilerController::class, 'preparePreview'])->whereUlid('file');
+            Route::get('/{file}/preview/content', [FilerController::class, 'previewContent'])->whereUlid('file');
             Route::get('/{file}/download', [FilerController::class, 'download'])->whereUlid('file');
             Route::post('/{file}/attachments', [FilerController::class, 'attach'])->whereUlid('file');
             Route::delete('/{file}', [FilerController::class, 'destroy'])->whereUlid('file');
