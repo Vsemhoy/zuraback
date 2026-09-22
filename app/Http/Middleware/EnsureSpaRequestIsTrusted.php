@@ -34,7 +34,11 @@ class EnsureSpaRequestIsTrusted
             abort_unless(in_array(rtrim($origin, '/'), $allowedOrigins, true), Response::HTTP_FORBIDDEN, 'Origin is not allowed.');
         }
 
-        if (! $request->isMethodSafe()) {
+        $isFileUpload = $request->routeIs('filer.store')
+            && $request->isMethod('POST')
+            && str_starts_with(strtolower((string) $request->header('Content-Type')), 'multipart/form-data;');
+
+        if (! $request->isMethodSafe() && ! $isFileUpload) {
             abort_unless($request->isJson(), Response::HTTP_UNSUPPORTED_MEDIA_TYPE, 'JSON requests are required.');
         }
 

@@ -14,8 +14,10 @@ use App\Http\Controllers\Api\EventConversationController;
 use App\Http\Controllers\Api\EventSectionController;
 use App\Http\Controllers\Api\EventTypeController;
 use App\Http\Controllers\Api\FactController;
+use App\Http\Controllers\Api\FilerController;
 use App\Http\Controllers\Api\KpiController;
 use App\Http\Controllers\Api\LoreController;
+use App\Http\Controllers\Api\MonitoringController;
 use App\Http\Controllers\Api\ProjectController;
 use App\Http\Controllers\Api\ScopeController;
 use App\Http\Controllers\Api\SearchController;
@@ -42,10 +44,19 @@ Route::prefix('api/auth')->middleware('spa.request')->group(function (): void {
 });
 
 Route::prefix('api')->middleware(['spa.request', 'auth', 'active'])->group(function (): void {
+    Route::get('/monitoring/storage', [MonitoringController::class, 'show'])->middleware('throttle:30,1');
     Route::get('/scopes', [ScopeController::class, 'index']);
     Route::post('/scopes', [ScopeController::class, 'store']);
 
     Route::prefix('/scopes/{scope}')->middleware('scope.member')->group(function (): void {
+        Route::prefix('files')->middleware(['scope.actor', 'throttle:60,1'])->group(function (): void {
+            Route::get('/', [FilerController::class, 'index']);
+            Route::get('/targets', [FilerController::class, 'targets']);
+            Route::post('/', [FilerController::class, 'store'])->name('filer.store');
+            Route::get('/{file}/download', [FilerController::class, 'download'])->whereUlid('file');
+            Route::post('/{file}/attachments', [FilerController::class, 'attach'])->whereUlid('file');
+            Route::delete('/{file}', [FilerController::class, 'destroy'])->whereUlid('file');
+        });
         Route::get('/', [ScopeController::class, 'show']);
         Route::get('/search', [SearchController::class, 'index'])->middleware('scope.actor');
         Route::get('/dashboard', [DashboardController::class, 'show'])->middleware(['scope.actor', 'scope.ability:task.view']);

@@ -30,6 +30,14 @@ return [
 
     'disks' => [
 
+        'filer' => [
+            'driver' => 'local',
+            'root' => env('FILER_ROOT', storage_path('app/filer')),
+            'visibility' => 'private',
+            'serve' => false,
+            'throw' => false,
+        ],
+
         'local' => [
             'driver' => 'local',
             'root' => storage_path('app/private'),
