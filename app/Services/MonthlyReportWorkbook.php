@@ -50,21 +50,33 @@ class MonthlyReportWorkbook
                     $index === 0 ? $kpi['points'] : null, $task['task_key'], $task['title'], $task['project_name'], $task['completed_at']];
             }
         }
-        $done = array_map(fn (array $task): array => [$task['task_key'], $task['title'], $task['project_name'], $task['assignee_name'], $task['customer_name'], $task['completed_at'], $task['result']], $report['completed']);
-        $plan = array_map(fn (array $row): array => [$row['task']['task_key'], $row['task']['title'], $row['task']['project_name'], $row['assignee_name'], $row['expected_result'], $this->status($row['task']['status']), implode("\n", array_map(fn (array $blocker): string => $blocker['reason'].($blocker['resolution_required'] ? "\nТребуется: ".$blocker['resolution_required'] : ''), $row['blockers']))], $report['plan']);
+        $done = array_map(fn (array $task): array => [$task['task_key'], $task['title'], $task['project_name'], $task['assignee_name'], $task['customer_name'], $task['completed_at'], ($task['planned'] ?? false) ? 'Да' : 'Нет', $task['result']], $report['completed']);
+        $plan = array_map(fn (array $row): array => [
+            $row['month'], $row['title'], $row['project']['key'] ?? 'Без проекта', $row['assignee']['name'] ?? 'Не назначен',
+            $row['description'], $row['resources'], $row['expected_result'], $row['impact'],
+            $row['estimated_minutes'] === null ? null : $row['estimated_minutes'] / 60,
+            implode(' — ', array_filter([$row['starts_on'], $row['ends_on']])),
+            $row['completed_at'] ? 'Выполнено' : 'Не выполнено', $row['completed_tasks_count'].' / '.$row['tasks_count'],
+            $row['actual_result'], $row['completed_at'],
+        ], $report['plan_items'] ?? []);
+        foreach ($report['plan'] as $row) {
+            $plan[] = [$row['month'], $row['task']['title'], $row['task']['project_name'], $row['assignee_name'],
+                null, null, $row['expected_result'], null, null, null, $this->status($row['task']['status']),
+                ($row['task']['status'] === 'done' ? '1' : '0').' / 1', null, $row['task']['completed_at']];
+        }
 
         return [
             ['name' => 'Сводка', 'headers' => ['Исполнитель', 'Выполнено задач', 'Зачтено KPI', 'Премиальные баллы', 'Премия'], 'widths' => [30, 19, 17, 23, 17], 'rows' => $summary, 'percent' => [4], 'dates' => []],
             ['name' => 'KPI', 'headers' => ['Исполнитель', 'KPI', 'KPI ID', 'Порог задач', 'Выполнено', 'Начислено баллов', 'Код задачи', 'Задача', 'Проект', 'Завершено'], 'widths' => [27, 35, 29, 16, 16, 22, 18, 55, 30, 23], 'rows' => $kpis, 'percent' => [], 'dates' => [9]],
-            ['name' => 'Выполнено', 'headers' => ['Код задачи', 'Задача', 'Проект', 'Исполнитель', 'Заказчик', 'Завершено', 'Результат'], 'widths' => [18, 55, 30, 27, 27, 23, 75], 'rows' => $done, 'percent' => [], 'dates' => [5]],
-            ['name' => 'План', 'headers' => ['Код задачи', 'Задача', 'Проект', 'Плановый исполнитель', 'Ожидаемый результат за месяц', 'Текущий статус', 'Блокеры'], 'widths' => [18, 55, 30, 28, 65, 24, 65], 'rows' => $plan, 'percent' => [], 'dates' => []],
+            ['name' => 'Выполнено', 'headers' => ['Код задачи', 'Задача', 'Проект', 'Исполнитель', 'Заказчик', 'Завершено', 'Плановая', 'Результат'], 'widths' => [18, 55, 30, 27, 27, 23, 14, 75], 'rows' => $done, 'percent' => [], 'dates' => [5]],
+            ['name' => 'План', 'headers' => ['Месяц', 'Плановая единица', 'Проект', 'Исполнитель', 'Описание', 'Ресурсы', 'Ожидаемый результат', 'Эффект', 'Оценка, ч', 'Диапазон дат', 'Выполнение', 'Задачи: готово / всего', 'Фактический результат', 'Завершено'], 'widths' => [13, 45, 25, 25, 50, 40, 50, 45, 15, 28, 20, 25, 50, 23], 'rows' => $plan, 'percent' => [], 'dates' => [13]],
         ];
     }
 
     private function sheet(array $report, array $sheet): string
     {
         $lastCol = $this->column(count($sheet['headers']) - 1);
-        $title = $sheet['name'].' · '.($sheet['name'] === 'План' ? $report['plan_month'] : $report['month']);
+        $title = $sheet['name'].' · '.($sheet['name'] === 'План' ? ($report['plan_year'] ?? $report['plan_month']) : $report['month']);
         $info = $report['scope']['name'].' · '.($report['person_name'] ?? 'Все исполнители').' · '.$report['timezone'].' · Снимок '.$report['generated_at'];
         $xml = '<worksheet xmlns="'.self::NS.'"><sheetViews><sheetView workbookViewId="0"><pane ySplit="4" topLeftCell="A5" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="20"/><cols>';
         foreach ($sheet['widths'] as $i => $width) {

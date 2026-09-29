@@ -70,6 +70,12 @@ class ProjectController extends Controller
         if (array_key_exists('visibility', $data) && $data['visibility'] !== $project->visibility) {
             abort_unless($project->created_by === $actor->id || $scope->owner_id === $actor->id, 403, 'Only the project creator or scope owner can change project privacy.');
         }
+        if (array_key_exists('include_in_reports', $data) && $data['include_in_reports'] !== $project->include_in_reports) {
+            abort_unless($project->created_by === $actor->id || $scope->owner_id === $actor->id, 403, 'Only the project creator or scope owner can change reporting participation.');
+            ActivityLog::query()->create(['scope_id' => $scope->id, 'actor_id' => $actor->id, 'subject_type' => 'project', 'subject_id' => $project->id,
+                'action' => 'project.reporting_changed', 'before' => ['include_in_reports' => $project->include_in_reports], 'after' => ['include_in_reports' => $data['include_in_reports']],
+                'context' => $this->context->auditMetadata($request)]);
+        }
         $project->update($data);
 
         return new ProjectResource($project->fresh()->load(['books:id,scope_id,project_id,title', 'creator:id,name,username'])->loadCount(['tasks', 'books']));

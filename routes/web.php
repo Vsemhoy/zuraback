@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\KpiController;
 use App\Http\Controllers\Api\LoreController;
 use App\Http\Controllers\Api\MonitoringController;
 use App\Http\Controllers\Api\MonthlyReportController;
+use App\Http\Controllers\Api\PlanItemController;
 use App\Http\Controllers\Api\ProjectController;
 use App\Http\Controllers\Api\ScopeController;
 use App\Http\Controllers\Api\SearchController;
@@ -100,6 +101,15 @@ Route::prefix('api')->middleware(['spa.request', 'auth', 'active'])->group(funct
             Route::get('/candidates', [MonthlyReportController::class, 'candidates']);
             Route::post('/plans', [MonthlyReportController::class, 'savePlan'])->middleware('scope.ability:report.write');
             Route::delete('/plans/{monthlyTaskPlan}', [MonthlyReportController::class, 'deletePlan'])->middleware('scope.ability:report.write');
+        });
+        Route::prefix('plans')->middleware(['scope.actor', 'scope.ability:report.view', 'scope.ability:task.view'])->group(function (): void {
+            Route::get('/', [PlanItemController::class, 'index']);
+            Route::get('/options', [PlanItemController::class, 'options']);
+            Route::get('/candidates', [PlanItemController::class, 'candidates']);
+            Route::get('/{planItem}', [PlanItemController::class, 'show']);
+            Route::post('/', [PlanItemController::class, 'store'])->middleware('scope.ability:report.write');
+            Route::patch('/{planItem}', [PlanItemController::class, 'update'])->middleware('scope.ability:report.write');
+            Route::delete('/{planItem}', [PlanItemController::class, 'destroy'])->middleware('scope.ability:report.write');
         });
         Route::get('/tasks', [TaskController::class, 'index'])->middleware(['scope.actor', 'scope.ability:task.view']);
         Route::get('/planner', [TaskPlannerController::class, 'index'])->middleware(['scope.actor', 'scope.ability:task.view']);

@@ -214,7 +214,7 @@ class MonthlyReportTest extends TestCase
                 continue;
             }
             foreach ($row->c as $cell) {
-                if (str_starts_with((string) $cell['r'], 'G')) {
+                if (str_starts_with((string) $cell['r'], 'H')) {
                     $text .= (string) $cell->is->t;
                 }
             }

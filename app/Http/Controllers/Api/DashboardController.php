@@ -156,7 +156,7 @@ class DashboardController extends Controller
     {
         $month = CarbonImmutable::now()->startOfMonth();
         $areas = $scope->kpis()->where('is_active', true)->orderBy('sort_order')->get();
-        $completed = $scope->tasks()
+        $completed = $scope->tasks()->includedInReports()
             ->where('status', 'done')
             ->whereNotNull('assignee_id')
             ->whereNotNull('kpi_id')

@@ -4,7 +4,9 @@ namespace App\Models;
 
 use App\Models\Concerns\HasEntityLinks;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -12,6 +14,21 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class Task extends DomainModel
 {
     use HasEntityLinks, SoftDeletes;
+
+    public function scopeIncludedInReports(Builder $query): Builder
+    {
+        return $query->where(fn (Builder $tasks) => $tasks->whereNull('project_id')->orWhereHas('project', fn (Builder $projects) => $projects->where('include_in_reports', true)));
+    }
+
+    public function planItems(): BelongsToMany
+    {
+        return $this->belongsToMany(PlanItem::class, 'plan_item_task');
+    }
+
+    public function monthlyPlans(): HasMany
+    {
+        return $this->hasMany(MonthlyTaskPlan::class);
+    }
 
     public function scope(): BelongsTo
     {

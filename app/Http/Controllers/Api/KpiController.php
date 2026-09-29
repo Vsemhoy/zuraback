@@ -62,7 +62,7 @@ class KpiController extends Controller
         $start = $month->startOfMonth();
         $end = $month->endOfMonth();
         $areas = $scope->kpis()->orderBy('sort_order')->orderBy('name')->get();
-        $tasks = $scope->tasks()
+        $tasks = $scope->tasks()->includedInReports()
             ->where('status', 'done')
             ->whereNotNull('assignee_id')
             ->whereNotNull('kpi_id')

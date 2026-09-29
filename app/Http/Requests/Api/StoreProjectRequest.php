@@ -30,6 +30,7 @@ class StoreProjectRequest extends WorkspaceRequest
             'priority' => ['sometimes', 'integer', 'between:1,5'],
             'color' => ['sometimes', 'string', 'regex:/^#[0-9A-Fa-f]{6}$/'],
             'visibility' => ['sometimes', 'in:private,scope'],
+            'include_in_reports' => ['sometimes', 'boolean'],
             'show_in_tasker' => ['sometimes', 'boolean'],
             'show_in_eventor' => ['sometimes', 'boolean'],
             'event_comments_enabled' => ['sometimes', 'boolean'],

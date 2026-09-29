@@ -9,6 +9,7 @@ class MonthlyReportRequest extends WorkspaceRequest
         return [
             'month' => ['required', 'date_format:Y-m', 'regex:/^(20[0-9]{2})-(0[1-9]|1[0-2])$/'],
             'user_id' => ['nullable', 'ulid'],
+            'plan_year' => ['sometimes', 'integer', 'between:2000,2099'],
             'timezone' => ['required', 'timezone'],
         ];
     }

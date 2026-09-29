@@ -16,7 +16,7 @@ use Throwable;
 
 class MonthlyReportService
 {
-    public function __construct(private readonly ContractorAccessService $access, private readonly MonthlyReportWorkbook $workbook) {}
+    public function __construct(private readonly ContractorAccessService $access, private readonly MonthlyReportWorkbook $workbook, private readonly PlanItemService $plans) {}
 
     public function visibleTasks(User $actor, Scope $scope): Builder
     {
@@ -24,7 +24,7 @@ class MonthlyReportService
             ->filter(fn (Project $project): bool => $this->access->canAccessProject($actor, $scope, $project)
                 && $this->access->canAccessProject($actor, $scope, $project, 'report.view'))->modelKeys();
 
-        return Task::query()->where('scope_id', $scope->id)->where(function (Builder $query) use ($projectIds, $actor, $scope): void {
+        return Task::query()->includedInReports()->where('scope_id', $scope->id)->where(function (Builder $query) use ($projectIds, $actor, $scope): void {
             $query->whereIn('project_id', $projectIds);
             if ($this->access->canAccessUnprojected($actor, $scope)) {
                 $query->orWhereNull('project_id');
@@ -40,7 +40,7 @@ class MonthlyReportService
         $query = $this->visibleTasks($actor, $scope)->where('status', 'done')
             ->where('completed_at', '>=', $month->utc())->where('completed_at', '<', $next->utc())
             ->when($personId, fn (Builder $query): Builder => $query->where('assignee_id', $personId))
-            ->with(['project:id,title,key', 'assignee:id,name,type,is_executor', 'customer:id,name', 'kpi:id,scope_id,name,kind,points,minimum_completed_tasks'])
+            ->with(['planItems' => fn ($plans) => $plans->whereIn('plan_items.id', $this->plans->visible($actor, $scope, true)->select('plan_items.id')), 'monthlyPlans', 'project:id,title,key', 'assignee:id,name,type,is_executor', 'customer:id,name', 'kpi:id,scope_id,name,kind,points,minimum_completed_tasks'])
             ->orderBy('completed_at')->orderBy('id');
         $tasks = $query->limit(5001)->get();
         abort_if($tasks->count() > 5000, 422, 'Слишком много задач для одной выгрузки. Выберите сотрудника.');
@@ -85,11 +85,13 @@ class MonthlyReportService
         abort_if($plans->count() > 5000, 422, 'Слишком большой план. Выберите сотрудника.');
 
         return [
-            'schema_version' => 1, 'scope' => ['id' => $scope->id, 'name' => $scope->name],
+            'schema_version' => 2, 'scope' => ['id' => $scope->id, 'name' => $scope->name],
             'month' => $month->format('Y-m'), 'plan_month' => $next->format('Y-m'), 'timezone' => $filters['timezone'],
             'person_id' => $personId, 'person_name' => $knownPerson?->name, 'generated_at' => now()->toISOString(),
             'bonus_cap_percent' => $cap, 'summary' => $summary->all(), 'kpis' => $qualified->all(), 'completed' => $completed->all(),
             'people' => $people->toArray(),
+            'plan_year' => (int) ($filters['plan_year'] ?? $month->year),
+            'plan_items' => $this->plans->year($actor, $scope, (int) ($filters['plan_year'] ?? $month->year), $personId),
             'plan' => $plans->map(fn (MonthlyTaskPlan $plan): array => [
                 'id' => $plan->id, 'month' => $plan->month, 'assignee_id' => $plan->assignee_id,
                 'assignee_name' => $plan->assignee?->name ?? 'Без исполнителя', 'expected_result' => $plan->expected_result,
@@ -103,6 +105,8 @@ class MonthlyReportService
     {
         return [
             'id' => $task->id, 'task_key' => $task->task_key, 'title' => $task->title, 'result' => $task->result,
+            'planned' => ($task->relationLoaded('planItems') && $task->planItems->contains(fn ($plan) => $plan->project_id === $task->project_id))
+                || ($task->relationLoaded('monthlyPlans') && $task->monthlyPlans->isNotEmpty()),
             'status' => $task->status, 'project_id' => $task->project_id,
             'project_name' => $task->project ? $task->project->key.' · '.$task->project->title : 'Без проекта',
             'assignee_id' => $task->assignee_id, 'assignee_name' => $task->assignee?->name ?? 'Без исполнителя',
@@ -158,7 +162,7 @@ class MonthlyReportService
             || ! $this->access->allows($actor, $scope, 'report.view') || ! $this->access->allows($actor, $scope, 'task.view')) {
             return false;
         }
-        $tasks = collect($report->snapshot['completed'])->concat(collect($report->snapshot['plan'])->pluck('task'));
+        $tasks = collect($report->snapshot['completed'])->concat(collect($report->snapshot['plan'])->pluck('task'))->concat($report->snapshot['plan_items'] ?? []);
         foreach ($tasks->pluck('project_id')->unique() as $projectId) {
             if ($projectId === null) {
                 if (! $this->access->canAccessUnprojected($actor, $scope)) {
