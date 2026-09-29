@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\FilerController;
 use App\Http\Controllers\Api\KpiController;
 use App\Http\Controllers\Api\LoreController;
 use App\Http\Controllers\Api\MonitoringController;
+use App\Http\Controllers\Api\MonthlyReportController;
 use App\Http\Controllers\Api\ProjectController;
 use App\Http\Controllers\Api\ScopeController;
 use App\Http\Controllers\Api\SearchController;
@@ -91,6 +92,15 @@ Route::prefix('api')->middleware(['spa.request', 'auth', 'active'])->group(funct
         Route::put('/kpis/settings', [KpiController::class, 'updateSettings'])->middleware(['scope.actor', 'scope.ability:task.update']);
         Route::patch('/kpis/{kpi}', [KpiController::class, 'update'])->middleware(['scope.actor', 'scope.ability:task.update']);
         Route::delete('/kpis/{kpi}', [KpiController::class, 'destroy'])->middleware(['scope.actor', 'scope.ability:task.update']);
+        Route::prefix('reports/monthly')->middleware(['scope.actor', 'scope.ability:report.view', 'scope.ability:task.view'])->group(function (): void {
+            Route::get('/', [MonthlyReportController::class, 'show']);
+            Route::get('/archives', [MonthlyReportController::class, 'index']);
+            Route::post('/archives', [MonthlyReportController::class, 'store'])->middleware(['scope.ability:report.write', 'throttle:10,1']);
+            Route::get('/archives/{monthlyReport}/download', [MonthlyReportController::class, 'download']);
+            Route::get('/candidates', [MonthlyReportController::class, 'candidates']);
+            Route::post('/plans', [MonthlyReportController::class, 'savePlan'])->middleware('scope.ability:report.write');
+            Route::delete('/plans/{monthlyTaskPlan}', [MonthlyReportController::class, 'deletePlan'])->middleware('scope.ability:report.write');
+        });
         Route::get('/tasks', [TaskController::class, 'index'])->middleware(['scope.actor', 'scope.ability:task.view']);
         Route::get('/planner', [TaskPlannerController::class, 'index'])->middleware(['scope.actor', 'scope.ability:task.view']);
         Route::post('/planner/tails', [TaskPlannerController::class, 'storeTail'])->middleware(['scope.actor', 'scope.ability:task.update']);
