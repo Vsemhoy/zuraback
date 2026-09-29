@@ -25,7 +25,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/user', function (Request $request) {
     return $request->user();
-})->middleware('auth:sanctum');
+})->middleware(['auth:sanctum', 'active']);
 
 Route::prefix('agent')->middleware(['auth:sanctum', 'active', 'agent', 'agent.audit'])->group(function (): void {
     Route::get('/spec', [AgentSpecificationController::class, 'show']);

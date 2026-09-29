@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Api;
 
+use App\Models\PlanItem;
 use App\Models\Scope;
 use App\Models\Task;
 use App\Models\TaskPlannerTail;
@@ -58,10 +59,59 @@ class DeletionApiTest extends TestCase
         $contractor = User::factory()->virtual()->create(['created_by' => $owner->id]);
         $scope->members()->create(['user_id' => $contractor->id, 'role' => 'member', 'joined_at' => now()]);
         $assigned = $this->task($scope, $owner, ['task_key' => 'TSK-4', 'assignee_id' => $contractor->id]);
+        $assigned->update(['customer_id' => $contractor->id]);
+        $checklist = $assigned->checklistItems()->create(['created_by' => $owner->id, 'assignee_id' => $contractor->id, 'title' => 'Historical item']);
+        $plan = PlanItem::query()->create([
+            'scope_id' => $scope->id, 'created_by' => $owner->id, 'assignee_id' => $contractor->id,
+            'title' => 'Historical plan', 'month' => '2026-09-01',
+        ]);
         $this->withHeaders(self::HEADERS)->deleteJson("/api/scopes/{$scope->id}/contractors/{$contractor->id}")->assertNoContent();
         $this->assertSoftDeleted('users', ['id' => $contractor->id]);
         $this->assertDatabaseHas('scope_members', ['scope_id' => $scope->id, 'user_id' => $contractor->id, 'is_active' => false]);
-        $this->assertDatabaseHas('tasks', ['id' => $assigned->id, 'assignee_id' => null]);
+        $this->assertDatabaseHas('tasks', ['id' => $assigned->id, 'assignee_id' => $contractor->id]);
+        $this->getJson("/api/scopes/{$scope->id}/tasks/{$assigned->id}")
+            ->assertOk()->assertJsonPath('data.assignee.name', $contractor->name);
+        $this->getJson("/api/scopes/{$scope->id}/contractors")->assertOk()->assertJsonMissing(['id' => $contractor->id]);
+        $this->getJson("/api/scopes/{$scope->id}/contractors/assignable")->assertOk()->assertJsonMissing(['id' => $contractor->id]);
+        $this->patchJson("/api/scopes/{$scope->id}/tasks/{$assigned->id}", ['title' => 'Updated', 'assignee_id' => $contractor->id])
+            ->assertOk()->assertJsonPath('data.assignee.id', $contractor->id);
+        $this->patchJson("/api/scopes/{$scope->id}/tasks/{$assigned->id}", ['customer_id' => $contractor->id, 'description' => 'History'])
+            ->assertOk()->assertJsonPath('data.customer.name', $contractor->name);
+        $this->patchJson("/api/scopes/{$scope->id}/plans/{$plan->id}", ['title' => 'Updated plan', 'assignee_id' => $contractor->id])
+            ->assertOk()->assertJsonPath('data.assignee.name', $contractor->name);
+        $this->patchJson("/api/scopes/{$scope->id}/tasks/{$child->id}", ['assignee_id' => $contractor->id])->assertUnprocessable();
+        $this->patchJson("/api/scopes/{$scope->id}/tasks/{$assigned->id}/checklist/{$checklist->id}", ['title' => 'Updated item', 'assignee_id' => $contractor->id])
+            ->assertOk()->assertJsonPath('data.assignee.name', $contractor->name);
+        $this->postJson("/api/scopes/{$scope->id}/tasks/{$assigned->id}/checklist", ['title' => 'New item', 'assignee_id' => $contractor->id])
+            ->assertUnprocessable();
+    }
+
+    public function test_deletion_preserves_historical_roles_and_revokes_api_access(): void
+    {
+        $owner = User::factory()->create();
+        $scope = Scope::query()->create(['owner_id' => $owner->id, 'name' => 'History', 'slug' => 'history']);
+        $scope->members()->create(['user_id' => $owner->id, 'role' => 'owner', 'joined_at' => now()]);
+        $agent = User::factory()->create(['type' => 'agent', 'created_by' => $owner->id]);
+        $scope->members()->create(['user_id' => $agent->id, 'role' => 'member', 'joined_at' => now()]);
+        $token = $agent->createToken('Existing connection', ['*']);
+        $task = $this->task($scope, $owner, [
+            'task_key' => 'TSK-1', 'created_by' => $agent->id, 'approved_by' => $agent->id,
+            'approved_at' => now(), 'delegated_agent_id' => $agent->id, 'is_agent_delegatable' => true,
+        ]);
+        $this->actingAs($owner)->withHeaders(self::HEADERS)
+            ->deleteJson("/api/scopes/{$scope->id}/contractors/{$agent->id}")->assertNoContent();
+        $this->assertNotNull($token->accessToken->fresh()->revoked_at);
+        $this->assertSame($agent->id, $task->fresh()->creator->id);
+        $this->assertSame($agent->id, $task->fresh()->approver->id);
+        $this->assertNotNull($task->fresh()->approved_at);
+        $this->patchJson("/api/scopes/{$scope->id}/tasks/{$task->id}", ['title' => 'Still editable'])
+            ->assertOk()->assertJsonPath('data.delegated_agent.id', $agent->id);
+        auth()->guard('web')->logout();
+        auth()->forgetGuards();
+        $this->withToken($token->plainTextToken)->getJson('/api/agent/me')->assertUnauthorized();
+        $token->accessToken->forceFill(['revoked_at' => null])->save();
+        auth()->forgetGuards();
+        $this->withToken($token->plainTextToken)->getJson('/api/agent/me')->assertUnauthorized();
     }
 
     public function test_scope_owner_and_current_account_cannot_be_deleted(): void

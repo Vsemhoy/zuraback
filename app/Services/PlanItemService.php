@@ -106,7 +106,9 @@ class PlanItemService
                 throw ValidationException::withMessages(['ends_on' => 'Конец диапазона не может быть раньше начала.']);
             }
             $assigneeId = array_key_exists('assignee_id', $data) ? $data['assignee_id'] : $item->assignee_id;
-            if ($assigneeId) {
+            $keepsDeletedAssignee = $item->exists && $assigneeId && $assigneeId === $item->assignee_id
+                && User::onlyTrashed()->whereKey($assigneeId)->exists();
+            if ($assigneeId && ! $keepsDeletedAssignee) {
                 $person = User::query()->whereKey($assigneeId)->where('is_executor', true)->whereIn('type', ['real', 'virtual'])->first();
                 $member = $scope->owner_id === $assigneeId || $scope->members()->where('user_id', $assigneeId)->where('is_active', true)->exists();
                 $project = $projectId ? Project::query()->find($projectId) : null;

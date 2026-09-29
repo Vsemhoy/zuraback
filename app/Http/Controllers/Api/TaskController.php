@@ -111,6 +111,15 @@ class TaskController extends Controller
     {
         abort_unless($this->access->canAccessTask($this->context->actor($request), $scope, $task, 'task.update'), 404);
         $data = $request->validated();
+        $historicalUserFields = [];
+        foreach (['assignee_id', 'customer_id', 'delegated_agent_id'] as $field) {
+            if ($task->{$field} && ($data[$field] ?? $task->{$field}) === $task->{$field}
+                && (! array_key_exists($field, $data) || $data[$field] === $task->{$field})
+                && User::onlyTrashed()->whereKey($task->{$field})->exists()) {
+                $historicalUserFields[] = $field;
+                unset($data[$field]);
+            }
+        }
         $this->normalizeAgentDelegation($data);
         $this->assertReferencesBelongToScope($scope, $data, $this->context->actor($request));
         abort_if(array_key_exists('project_id', $data) && $data['project_id'] === null && ! $this->access->canAccessUnprojected($this->context->actor($request), $scope), 403, 'Unprojected tasks are outside the contractor access boundary.');
@@ -125,6 +134,9 @@ class TaskController extends Controller
         if (! $assignmentData['is_agent_delegatable']) {
             $assignmentData['delegated_agent_id'] = null;
             $data['delegated_agent_id'] = null;
+        }
+        foreach ($historicalUserFields as $field) {
+            unset($assignmentData[$field]);
         }
         $this->assertAssignedUsersCanAccess($scope, $assignmentData, $targetProjectId);
 

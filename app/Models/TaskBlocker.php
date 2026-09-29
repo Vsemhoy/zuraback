@@ -8,10 +8,25 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable(['task_id', 'reason', 'resolution_required', 'responsible_user_id', 'responsible_text', 'previous_status', 'blocked_by', 'blocked_at', 'resolved_by', 'resolved_at', 'resolution_note', 'next_review_at'])]
 class TaskBlocker extends DomainModel
 {
-    public function task(): BelongsTo { return $this->belongsTo(Task::class); }
-    public function responsibleUser(): BelongsTo { return $this->belongsTo(User::class, 'responsible_user_id'); }
-    public function blockedBy(): BelongsTo { return $this->belongsTo(User::class, 'blocked_by'); }
-    public function resolvedBy(): BelongsTo { return $this->belongsTo(User::class, 'resolved_by'); }
+    public function task(): BelongsTo
+    {
+        return $this->belongsTo(Task::class);
+    }
+
+    public function responsibleUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'responsible_user_id')->withTrashed();
+    }
+
+    public function blockedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'blocked_by')->withTrashed();
+    }
+
+    public function resolvedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'resolved_by')->withTrashed();
+    }
 
     protected function casts(): array
     {

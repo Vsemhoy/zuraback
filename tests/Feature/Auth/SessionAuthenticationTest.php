@@ -58,4 +58,16 @@ class SessionAuthenticationTest extends TestCase
         $this->withHeaders([...self::HEADERS, 'Origin' => 'https://evil.example'])
             ->postJson('/api/auth/login', [])->assertForbidden();
     }
+
+    public function test_soft_deleted_user_cannot_login_or_use_an_existing_session(): void
+    {
+        $user = User::factory()->create(['password' => 'secret-password']);
+        $user->delete();
+        $this->withHeaders(self::HEADERS)
+            ->postJson('/api/auth/login', ['identity' => $user->email, 'password' => 'secret-password'])
+            ->assertUnprocessable();
+        $this->actingAs($user)->withHeaders(self::HEADERS)->getJson('/api/auth/me')->assertUnauthorized();
+        $this->assertGuest();
+        $this->actingAs($user)->getJson('/api/user')->assertUnauthorized();
+    }
 }

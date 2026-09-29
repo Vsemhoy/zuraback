@@ -19,7 +19,7 @@ class Comment extends DomainModel
 
     public function creator(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'created_by');
+        return $this->belongsTo(User::class, 'created_by')->withTrashed();
     }
 
     public function commentable(): MorphTo

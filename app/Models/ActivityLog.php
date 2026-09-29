@@ -18,7 +18,7 @@ class ActivityLog extends DomainModel
 
     public function actor(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'actor_id');
+        return $this->belongsTo(User::class, 'actor_id')->withTrashed();
     }
 
     public function subject(): MorphTo

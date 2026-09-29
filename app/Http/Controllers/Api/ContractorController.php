@@ -14,7 +14,6 @@ use App\Models\ContractorDelegation;
 use App\Models\LoreRevision;
 use App\Models\ProjectMember;
 use App\Models\Scope;
-use App\Models\Task;
 use App\Models\User;
 use App\Services\ContractorAccessService;
 use Illuminate\Http\JsonResponse;
@@ -419,12 +418,8 @@ class ContractorController extends Controller
             $contractor->projectMemberships()->update(['is_active' => false]);
             $contractor->delegatedPersonas()->update(['is_active' => false]);
             $contractor->receivedDelegations()->update(['is_active' => false]);
-            Task::query()->where('assignee_id', $contractor->id)->update(['assignee_id' => null]);
-            Task::query()->where('customer_id', $contractor->id)->update(['customer_id' => null]);
-            Task::query()->where('delegated_agent_id', $contractor->id)->update(['delegated_agent_id' => null, 'is_agent_delegatable' => false]);
-            Task::query()->where('approved_by', $contractor->id)->update(['approved_by' => null, 'approved_at' => null]);
             BookPage::query()->where('editing_by', $contractor->id)->update(['editing_by' => null, 'editing_started_at' => null]);
-            $contractor->update(['status' => 'blocked', 'is_active' => false]);
+            $contractor->forceFill(['status' => 'blocked', 'is_active' => false, 'remember_token' => null])->save();
             $contractor->delete();
 
             ActivityLog::query()->create([
