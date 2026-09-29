@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\EntityLinkController;
 use App\Http\Controllers\Api\FactController;
 use App\Http\Controllers\Api\FilerController;
 use App\Http\Controllers\Api\LoreController;
+use App\Http\Controllers\Api\PlanItemController;
 use App\Http\Controllers\Api\ProjectController;
 use App\Http\Controllers\Api\ScopeController;
 use App\Http\Controllers\Api\TaskChecklistItemController;
@@ -43,8 +44,19 @@ Route::prefix('agent')->middleware(['auth:sanctum', 'active', 'agent', 'agent.au
             Route::post('/{file}/preview', [FilerController::class, 'preparePreview'])->whereUlid('file');
             Route::get('/{file}/preview/content', [FilerController::class, 'previewContent'])->whereUlid('file');
             Route::get('/{file}/download', [FilerController::class, 'download'])->whereUlid('file');
+            Route::get('/{file}/image', [FilerController::class, 'image'])->whereUlid('file');
+            Route::post('/{file}/feature', [FilerController::class, 'feature'])->whereUlid('file')->middleware('scope.ability:task.update');
             Route::post('/{file}/attachments', [FilerController::class, 'attach'])->whereUlid('file')->middleware('scope.ability:task.update');
             Route::delete('/{file}', [FilerController::class, 'destroy'])->whereUlid('file')->middleware(['scope.ability:task.update', 'scope.ability:task.delete']);
+        });
+        Route::prefix('plans')->middleware(['throttle:60,1', 'scope.ability:report.view', 'scope.ability:task.view'])->group(function (): void {
+            Route::get('/', [PlanItemController::class, 'index']);
+            Route::get('/options', [PlanItemController::class, 'options']);
+            Route::get('/candidates', [PlanItemController::class, 'candidates']);
+            Route::get('/{planItem}', [PlanItemController::class, 'show'])->whereUlid('planItem');
+            Route::post('/', [PlanItemController::class, 'store'])->middleware(['scope.ability:report.write', 'scope.ability:task.update']);
+            Route::patch('/{planItem}', [PlanItemController::class, 'update'])->whereUlid('planItem')->middleware(['scope.ability:report.write', 'scope.ability:task.update']);
+            Route::delete('/{planItem}', [PlanItemController::class, 'destroy'])->whereUlid('planItem')->middleware(['scope.ability:report.write', 'scope.ability:task.update']);
         });
         Route::get('/contractors/assignable', [ContractorController::class, 'assignable'])->middleware('scope.ability:task.view');
         Route::get('/projects', [ProjectController::class, 'index'])->middleware('scope.ability:task.view');

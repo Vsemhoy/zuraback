@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Event;
 use App\Models\FilerFile;
 use App\Models\Project;
 use App\Models\Scope;
@@ -64,6 +65,45 @@ class AgentFilerApiTest extends TestCase
         $id = $this->post($url, $this->upload())->assertCreated()->json('data.id');
         $this->deleteJson("{$url}/{$id}")->assertForbidden();
         $this->assertDatabaseHas('filer_files', ['id' => $id]);
+    }
+
+    public function test_agent_can_upload_read_and_feature_event_photo(): void
+    {
+        [$agent, $scope, $url] = $this->agent(['task.view', 'task.update']);
+        $event = Event::factory()->create(['scope_id' => $scope->id, 'created_by' => $agent->id]);
+        $id = $this->post($url, ['file' => UploadedFile::fake()->image('cover.png', 40, 30), 'photo' => '1',
+            'category' => 'event', 'visibility' => 'scope', 'subject_type' => 'event', 'subject_id' => $event->id])
+            ->assertCreated()->json('data.id');
+        $file = FilerFile::findOrFail($id);
+        Storage::disk('filer')->assertExists($file->path);
+        $this->assertSame('image/webp', $file->mime);
+        $this->getJson($url.'?photos=1&subject_type=event&subject_id='.$event->id)->assertOk()->assertJsonPath('data.0.id', $id);
+        $this->get("{$url}/{$id}/image")->assertOk()->assertHeader('Content-Type', 'image/webp');
+        $this->postJson("{$url}/{$id}/feature", ['subject_type' => 'event', 'subject_id' => $event->id, 'enabled' => true])->assertNoContent();
+        $this->assertSame($id, $event->fresh()->meta['cover_file_id']);
+        $this->postJson("{$url}/{$id}/feature", ['subject_type' => 'event', 'subject_id' => $event->id, 'enabled' => false])->assertNoContent();
+        $this->assertNull($event->fresh()->meta['cover_file_id']);
+    }
+
+    public function test_read_only_agent_cannot_select_avatar_403(): void
+    {
+        [$agent, $scope, $url] = $this->agent(['task.view']);
+        $file = FilerFile::factory()->create(['scope_id' => $scope->id, 'created_by' => $agent->id, 'visibility' => 'scope', 'mime' => 'image/webp']);
+        $file->attachments()->create(['subject_type' => 'user', 'subject_id' => $agent->id]);
+        $this->postJson("{$url}/{$file->id}/feature", ['subject_type' => 'user', 'subject_id' => $agent->id, 'enabled' => true])->assertForbidden();
+        $this->assertNull($agent->fresh()->profile['avatar'] ?? null);
+    }
+
+    public function test_private_and_foreign_images_remain_inaccessible_404(): void
+    {
+        [, $scope, $url] = $this->agent(['task.view', 'task.update']);
+        $private = FilerFile::factory()->create(['scope_id' => $scope->id, 'visibility' => 'private', 'mime' => 'image/webp']);
+        $foreign = FilerFile::factory()->create(['visibility' => 'scope', 'mime' => 'image/webp']);
+        foreach ([$private, $foreign] as $file) {
+            Storage::disk('filer')->put($file->path, 'private image bytes');
+            $this->get("{$url}/{$file->id}/image")->assertNotFound();
+            Storage::disk('filer')->assertExists($file->path);
+        }
     }
 
     public function test_agent_cannot_access_private_files_projects_or_other_scopes(): void
