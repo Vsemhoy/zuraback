@@ -53,11 +53,16 @@ class PlanItemController extends Controller
     public function candidates(Request $request, Scope $scope): JsonResource
     {
         $data = $request->validate(['project_id' => ['nullable', 'ulid'], 'q' => ['nullable', 'string', 'max:150']]);
-        $query = $this->plans->tasks($this->context->actor($request), $scope)->where('project_id', $data['project_id'] ?? null)
+        $actor = $this->context->actor($request);
+        $query = $this->plans->tasks($actor, $scope)->where('project_id', $data['project_id'] ?? null)
             ->where('status', '!=', 'cancelled')
             ->when($data['q'] ?? null, fn ($q, $v) => $q->where(fn ($q) => $q->where('title', 'like', '%'.$v.'%')->orWhere('task_key', 'like', '%'.$v.'%')));
 
-        return JsonResource::collection($query->orderByDesc('created_at')->orderBy('id')->paginate(30, ['id', 'title', 'task_key', 'status']));
+        $page = $query->with($this->plans->taskPlanRelations($actor, $scope))
+            ->orderByDesc('created_at')->orderBy('id')->paginate(30, ['id', 'scope_id', 'project_id', 'title', 'task_key', 'status']);
+        $page->setCollection($page->getCollection()->map(fn ($task): array => $this->plans->taskRow($task)));
+
+        return JsonResource::collection($page);
     }
 
     public function show(Request $request, Scope $scope, PlanItem $planItem): JsonResource

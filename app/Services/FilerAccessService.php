@@ -23,7 +23,7 @@ class FilerAccessService
             return false;
         }
         if ($subject instanceof User) {
-            return $scope->members()->where('user_id', $subject->id)->where('is_active', true)->exists()
+            return ($scope->owner_id === $subject->id || $scope->members()->where('user_id', $subject->id)->where('is_active', true)->exists())
                 && ($subject->id === $actor->id || $this->access->canManageContractor($actor, $scope, $subject));
         }
         if ($subject->scope_id !== $scope->id) {

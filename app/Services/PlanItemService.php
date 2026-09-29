@@ -54,7 +54,24 @@ class PlanItemService
         $visibleTasks = $this->tasks($actor, $scope, $report)->select('tasks.id');
 
         return $query->with(['project:id,title,key,include_in_reports', 'assignee:id,name', 'completer:id,name',
-            'tasks' => fn ($tasks) => $tasks->whereIn('tasks.id', $visibleTasks)->select(['tasks.id', 'scope_id', 'project_id', 'task_key', 'title', 'status'])]);
+            'tasks' => fn ($tasks) => $tasks->whereIn('tasks.id', $visibleTasks)->select(['tasks.id', 'scope_id', 'project_id', 'task_key', 'title', 'status'])
+                ->with($this->taskPlanRelations($actor, $scope, $report))]);
+    }
+
+    public function taskPlanRelations(User $actor, Scope $scope, bool $report = false): array
+    {
+        $visiblePlans = $this->visible($actor, $scope, $report)->select('plan_items.id');
+
+        return ['planItems' => fn ($plans) => $plans->whereIn('plan_items.id', $visiblePlans)
+            ->select(['plan_items.id', 'scope_id', 'project_id', 'title', 'month'])->orderBy('month')->orderBy('plan_items.id')];
+    }
+
+    public function taskRow(Task $task): array
+    {
+        return ['id' => $task->id, 'task_key' => $task->task_key, 'title' => $task->title, 'status' => $task->status,
+            'linked_plans' => $task->planItems
+                ->filter(fn (PlanItem $plan): bool => $plan->scope_id === $task->scope_id && $plan->project_id === $task->project_id)
+                ->map(fn (PlanItem $plan): array => $plan->only(['id', 'title', 'month']))->values()->all()];
     }
 
     public function row(PlanItem $item): array
@@ -64,7 +81,7 @@ class PlanItemService
 
         return [...$item->attributesToArray(),
             'project' => $item->project, 'assignee' => $item->assignee, 'completer' => $item->completer,
-            'tasks' => $tasks->map(fn (Task $task): array => ['id' => $task->id, 'task_key' => $task->task_key, 'title' => $task->title, 'status' => $task->status])->all(),
+            'tasks' => $tasks->map(fn (Task $task): array => $this->taskRow($task))->all(),
             'tasks_count' => $tasks->count(), 'completed_tasks_count' => $tasks->where('status', 'done')->count()];
     }
 

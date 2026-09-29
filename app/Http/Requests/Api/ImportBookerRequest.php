@@ -42,7 +42,7 @@ class ImportBookerRequest extends WorkspaceRequest
             'groups.*.external_id' => ['required', 'ulid', 'distinct'],
             'groups.*.page_external_id' => ['required', 'ulid'],
             'groups.*.master_block_external_id' => ['required', 'ulid'],
-            'groups.*.type' => ['required', 'in:markdown,excalidraw,svg,table,code,callout,checklist,divider,embed'],
+            'groups.*.type' => ['required', 'in:markdown,excalidraw,svg,photo,table,code,callout,checklist,divider,embed'],
             'groups.*.role' => ['required', 'string', 'max:32'],
             'groups.*.visibility' => ['required', 'in:private,scope,public'],
             'groups.*.is_hidden_by_default' => ['required', 'boolean'],

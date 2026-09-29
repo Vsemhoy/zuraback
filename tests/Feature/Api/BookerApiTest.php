@@ -5,11 +5,29 @@ namespace Tests\Feature\Api;
 use App\Models\Scope;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class BookerApiTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_photo_block_preserves_its_file_reference_in_a_new_version(): void
+    {
+        $user = User::factory()->create();
+        $scope = Scope::query()->create(['owner_id' => $user->id, 'name' => 'Photos', 'slug' => 'photos']);
+        $scope->members()->create(['user_id' => $user->id, 'role' => 'owner', 'joined_at' => now()]);
+        $book = $scope->books()->create(['created_by' => $user->id, 'title' => 'Album']);
+        $page = $book->pages()->create(['created_by' => $user->id, 'title' => 'Photo page', 'editing_by' => $user->id, 'editing_started_at' => now()]);
+        $payload = ['scope_id' => $scope->id, 'file_id' => (string) Str::ulid(), 'caption' => 'Initial caption'];
+        $group = $this->actingAs($user)->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/books/{$book->id}/pages/{$page->id}/blocks", ['type' => 'photo', 'payload' => $payload])
+            ->assertCreated()->assertJsonPath('data.type', 'photo')->json('data');
+        $this->postJson("/api/scopes/{$scope->id}/books/{$book->id}/pages/{$page->id}/blocks/{$group['id']}/versions", [
+            'payload' => [...$payload, 'caption' => 'New caption'], 'status' => 'published',
+        ])->assertCreated()->assertJsonPath('data.master_block.payload.file_id', $payload['file_id'])
+            ->assertJsonPath('data.master_block.payload.caption', 'New caption');
+    }
 
     private const HEADERS = ['Accept' => 'application/json', 'Content-Type' => 'application/json', 'X-App-Request' => 'Zuratax'];
 

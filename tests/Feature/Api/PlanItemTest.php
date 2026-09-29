@@ -20,6 +20,44 @@ class PlanItemTest extends TestCase
 
     private const HEADERS = ['Accept' => 'application/json', 'Content-Type' => 'application/json', 'X-App-Request' => 'Zuratax'];
 
+    public function test_candidates_and_selected_tasks_include_existing_plans_without_blocking_reuse(): void
+    {
+        [$user, $scope, $base] = $this->workspace();
+        $task = Task::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id, 'project_id' => null]);
+        $first = PlanItem::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id, 'project_id' => null, 'title' => 'First plan', 'month' => '2026-10']);
+        $first->tasks()->attach($task);
+        $this->getJson($base.'/plans/candidates')->assertOk()->assertJsonCount(1, 'data.0.linked_plans')
+            ->assertJsonPath('data.0.linked_plans.0.title', 'First plan')->assertJsonPath('data.0.linked_plans.0.month', '2026-10');
+        $second = $this->postJson($base.'/plans', ['title' => 'Second plan', 'month' => '2026-11', 'task_ids' => [$task->id]])
+            ->assertOk()->assertJsonCount(2, 'data.tasks.0.linked_plans')->json('data.id');
+        $this->getJson($base.'/plans/'.$first->id)->assertOk()->assertJsonCount(2, 'data.tasks.0.linked_plans');
+        $this->getJson($base.'/plans?year=2026')->assertOk()->assertJsonCount(2, 'data.items.0.tasks.0.linked_plans');
+        $this->deleteJson($base.'/plans/'.$second)->assertNoContent();
+        $this->getJson($base.'/plans/candidates')->assertOk()->assertJsonCount(1, 'data.0.linked_plans');
+        $this->patchJson($base.'/plans/'.$first->id, ['task_ids' => []])->assertOk();
+        $this->getJson($base.'/plans/candidates')->assertOk()->assertJsonCount(0, 'data.0.linked_plans');
+    }
+
+    public function test_plan_hints_never_expose_foreign_or_stale_project_links(): void
+    {
+        [$owner, $scope, $base] = $this->workspace();
+        $task = Task::factory()->create(['scope_id' => $scope->id, 'created_by' => $owner->id, 'project_id' => null]);
+        $visible = PlanItem::factory()->create(['scope_id' => $scope->id, 'created_by' => $owner->id, 'project_id' => null]);
+        $visible->tasks()->attach($task);
+        $foreignScope = Scope::factory()->create(['owner_id' => $owner->id]);
+        $foreign = PlanItem::factory()->create(['scope_id' => $foreignScope->id, 'created_by' => $owner->id, 'project_id' => null, 'title' => 'Foreign secret']);
+        $foreign->tasks()->attach($task);
+        $private = Project::factory()->create(['scope_id' => $scope->id, 'created_by' => $owner->id, 'visibility' => 'private']);
+        $stale = PlanItem::factory()->create(['scope_id' => $scope->id, 'created_by' => $owner->id, 'project_id' => $private->id, 'title' => 'Private secret']);
+        $stale->tasks()->attach($task);
+        $this->getJson($base.'/plans/candidates')->assertOk()->assertJsonCount(1, 'data.0.linked_plans')
+            ->assertJsonMissing(['title' => 'Foreign secret'])->assertJsonMissing(['title' => 'Private secret']);
+        $member = User::factory()->create();
+        $scope->members()->create(['user_id' => $member->id, 'role' => 'member', 'project_access_mode' => 'all']);
+        $this->actingAs($member)->getJson($base.'/plans/candidates')->assertOk()->assertJsonCount(1, 'data.0.linked_plans')
+            ->assertJsonPath('data.0.linked_plans.0.id', $visible->id);
+    }
+
     private function workspace(): array
     {
         $user = User::factory()->create(['is_executor' => true]);

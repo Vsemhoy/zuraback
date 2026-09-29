@@ -31,6 +31,7 @@ class UserResource extends JsonResource
             'type' => $this->type,
             'status' => $this->status,
             'preferred_language' => $this->preferred_language,
+            'avatar' => $this->profile['avatar'] ?? null,
             'acting_as' => $actingAs,
             'acting_scope_id' => $actingAs ? $request->session()->get('contractor.scope_id') : null,
         ];

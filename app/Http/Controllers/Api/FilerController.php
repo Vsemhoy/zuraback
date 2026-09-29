@@ -5,12 +5,15 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\StoreFilerFileRequest;
 use App\Http\Requests\Api\UpdateFilerFileRequest;
+use App\Models\Event;
 use App\Models\FilerFile;
 use App\Models\Scope;
+use App\Models\User;
 use App\Services\ContractorAccessService;
 use App\Services\ContractorContext;
 use App\Services\FilerAccessService;
 use App\Services\FilerPreviewService;
+use App\Services\PhotoProcessor;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -37,6 +40,7 @@ class FilerController extends Controller
             'subject_type' => ['nullable', Rule::in(array_keys(FilerAccessService::SUBJECTS)), 'required_with:subject_id'],
             'subject_id' => ['nullable', 'ulid', 'required_with:subject_type'],
             'page' => ['nullable', 'integer', 'min:1'],
+            'photos' => ['sometimes', 'boolean'],
         ]);
         $actor = $this->context->actor($request);
         $query = FilerFile::query()->where('scope_id', $scope->id)->with(['creator', 'attachments.subject'])->latest('id');
@@ -50,6 +54,9 @@ class FilerController extends Controller
             $query->whereHas('attachments', fn ($links) => $links->where('subject_type', $filters['subject_type'])->where('subject_id', $filters['subject_id']));
         }
         $page = (int) ($filters['page'] ?? 1);
+        if ($request->boolean('photos')) {
+            $query->whereIn('mime', ['image/jpeg', 'image/png', 'image/webp']);
+        }
         $visible = [];
         $skip = ($page - 1) * 30;
         foreach ($query->lazy(100) as $file) {
@@ -123,14 +130,19 @@ class FilerController extends Controller
         $id = (string) Str::ulid();
         $path = $scope->id.'/'.$id.'/original';
         $name = Str::limit(preg_replace('/[\\x00-\\x1F\\x7F\\/\\\\\\\\]/u', '_', $upload->getClientOriginalName()), 240, '');
-        abort_unless($upload->storeAs($scope->id.'/'.$id, 'original', 'filer') !== false, 507, 'Не удалось сохранить файл.');
+        $photo = $request->boolean('photo');
+        $bytes = $photo ? app(PhotoProcessor::class)->compress($upload, $type === 'user' ? 512 : 2000) : null;
+        if ($photo) {
+            $name = pathinfo($name, PATHINFO_FILENAME).'.webp';
+        }
+        abort_unless(($photo ? $disk->put($path, $bytes) : $upload->storeAs($scope->id.'/'.$id, 'original', 'filer')) !== false, 507, 'Не удалось сохранить файл.');
         try {
-            $file = DB::transaction(function () use ($scope, $actor, $request, $data, $upload, $id, $path, $name, $type): FilerFile {
+            $file = DB::transaction(function () use ($scope, $actor, $request, $data, $upload, $id, $path, $name, $type, $photo, $bytes): FilerFile {
                 $file = new FilerFile([
                     'scope_id' => $scope->id, 'created_by' => $actor->id, 'uploaded_by' => $request->user()->id,
                     'name' => $name, 'category' => $data['category'], 'visibility' => $data['visibility'],
-                    'disk' => 'filer', 'path' => $path, 'mime' => $upload->getMimeType() ?: 'application/octet-stream',
-                    'size' => $upload->getSize(), 'sha256' => hash_file('sha256', $upload->getRealPath()),
+                    'disk' => 'filer', 'path' => $path, 'mime' => $photo ? 'image/webp' : ($upload->getMimeType() ?: 'application/octet-stream'),
+                    'size' => $photo ? strlen($bytes) : $upload->getSize(), 'sha256' => $photo ? hash('sha256', $bytes) : hash_file('sha256', $upload->getRealPath()),
                 ]);
                 $file->id = $id;
                 $file->save();
@@ -167,6 +179,54 @@ class FilerController extends Controller
         abort_unless($disk->exists($file->path), 404, 'Файл отсутствует в хранилище.');
 
         return $disk->download($file->path, $file->name, ['Content-Type' => 'application/octet-stream', 'X-Content-Type-Options' => 'nosniff', 'Cache-Control' => 'private, no-store']);
+    }
+
+    public function image(Request $request, Scope $scope, FilerFile $file): StreamedResponse
+    {
+        $actor = $this->context->actor($request);
+        $avatar = $file->scope_id === $scope->id && $file->visibility === 'scope' && $file->attachments()->count() === 1
+            && $file->attachments()->where('subject_type', 'user')->get()->contains(function ($link) use ($scope, $file): bool {
+                $user = User::find($link->subject_id);
+
+                return $user && ($user->profile['avatar']['file_id'] ?? null) === $file->id
+                    && ($scope->owner_id === $user->id || $scope->members()->where('user_id', $user->id)->where('is_active', true)->exists());
+            });
+        abort_unless($avatar || $this->access->file($actor, $scope, $file), 404);
+        abort_unless(in_array($file->mime, ['image/jpeg', 'image/png', 'image/webp'], true), 422);
+        $disk = Storage::disk($file->disk);
+        abort_unless($disk->exists($file->path), 404);
+
+        return $disk->response($file->path, $file->name, ['Content-Type' => $file->mime, 'X-Content-Type-Options' => 'nosniff', 'Cache-Control' => 'private, no-store']);
+    }
+
+    public function feature(Request $request, Scope $scope, FilerFile $file): Response
+    {
+        $data = $request->validate([
+            'subject_type' => ['required', Rule::in(['event', 'user'])],
+            'subject_id' => ['required', 'ulid'], 'enabled' => ['required', 'boolean'],
+        ]);
+        $actor = $this->context->actor($request);
+        $class = FilerAccessService::SUBJECTS[$data['subject_type']];
+        $subject = $class::find($data['subject_id']);
+        abort_unless($this->access->file($actor, $scope, $file) && $this->access->subject($actor, $scope, $subject, true), 404);
+        abort_unless(in_array($file->mime, ['image/jpeg', 'image/png', 'image/webp'], true)
+            && $file->visibility === 'scope'
+            && $file->attachments()->where('subject_type', $data['subject_type'])->where('subject_id', $subject->id)->exists(), 422);
+        abort_if($data['subject_type'] === 'user' && $file->attachments()->count() !== 1, 422, 'Аватар должен быть отдельной фотографией профиля.');
+        DB::transaction(function () use ($subject, $data, $file, $scope): void {
+            $locked = $subject->newQuery()->lockForUpdate()->findOrFail($subject->id);
+            if ($data['subject_type'] === 'user') {
+                $profile = $locked->profile ?? [];
+                $profile['avatar'] = $data['enabled'] ? ['file_id' => $file->id, 'scope_id' => $scope->id] : null;
+                $locked->update(['profile' => $profile]);
+            } else {
+                $meta = $locked->meta ?? [];
+                $meta['cover_file_id'] = $data['enabled'] ? $file->id : null;
+                $locked->update(['meta' => $meta]);
+            }
+        });
+
+        return response()->noContent();
     }
 
     public function update(UpdateFilerFileRequest $request, Scope $scope, FilerFile $file): JsonResponse
@@ -212,6 +272,8 @@ class FilerController extends Controller
             $preview = app(FilerPreviewService::class)->path($locked);
             abort_unless(! $disk->exists($preview) || $disk->delete($preview), 503, 'Не удалось удалить превью.');
             abort_unless(! $disk->exists($locked->path) || $disk->delete($locked->path), 503, 'Не удалось удалить файл.');
+            Event::query()->where('meta->cover_file_id', $locked->id)->update(['meta->cover_file_id' => null]);
+            User::query()->where('profile->avatar->file_id', $locked->id)->update(['profile->avatar' => null]);
             $locked->delete();
         });
 

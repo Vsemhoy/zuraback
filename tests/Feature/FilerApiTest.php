@@ -20,6 +20,85 @@ class FilerApiTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_photo_is_compressed_and_private_image_access_is_enforced(): void
+    {
+        [$owner, $scope] = $this->prepare();
+        $task = Task::factory()->create(['scope_id' => $scope->id, 'created_by' => $owner->id]);
+        $id = $this->upload($scope, $owner, [
+            'file' => UploadedFile::fake()->image('camera.png', 2400, 1200), 'photo' => '1',
+            'category' => 'task', 'subject_type' => 'task', 'subject_id' => $task->id,
+        ])->assertCreated()->assertJsonPath('data.mime', 'image/webp')->json('data.id');
+        $file = FilerFile::findOrFail($id);
+        $bytes = Storage::disk('filer')->get($file->path);
+        $size = getimagesizefromstring($bytes);
+        $this->assertSame(2000, $size[0]);
+        $this->assertSame(1000, $size[1]);
+        $this->assertSame(strlen($bytes), $file->size);
+        $this->assertSame(hash('sha256', $bytes), $file->sha256);
+        $this->assertCount(1, Storage::disk('filer')->allFiles());
+        $this->getJson("/api/scopes/{$scope->id}/files/{$id}/image")->assertOk()->assertHeader('Content-Type', 'image/webp');
+        $colleague = User::factory()->create();
+        ScopeMember::factory()->create(['scope_id' => $scope->id, 'user_id' => $colleague->id]);
+        $this->actingAs($colleague)->getJson("/api/scopes/{$scope->id}/files/{$id}/image")->assertNotFound();
+        $otherScope = Scope::factory()->create(['owner_id' => $owner->id]);
+        $this->actingAs($owner)->getJson("/api/scopes/{$otherScope->id}/files/{$id}/image")->assertNotFound();
+    }
+
+    public function test_invalid_photo_is_rejected_without_leaving_a_file(): void
+    {
+        [$owner, $scope] = $this->prepare();
+        $this->upload($scope, $owner, ['photo' => '1'])->assertUnprocessable();
+        $this->upload($scope, $owner, ['photo' => '1', 'file' => UploadedFile::fake()->createWithContent('unsafe.svg', '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')])->assertUnprocessable();
+        $this->assertSame([], Storage::disk('filer')->allFiles());
+        $this->assertDatabaseCount('filer_files', 0);
+    }
+
+    public function test_event_photos_have_a_selectable_cover_and_deletion_clears_it(): void
+    {
+        [$owner, $scope] = $this->prepare();
+        $event = Event::factory()->create(['scope_id' => $scope->id, 'created_by' => $owner->id, 'visibility' => 'scope']);
+        $id = $this->upload($scope, $owner, [
+            'file' => UploadedFile::fake()->image('event.jpg'), 'photo' => '1', 'visibility' => 'scope',
+            'category' => 'event', 'subject_type' => 'event', 'subject_id' => $event->id,
+        ])->assertCreated()->json('data.id');
+        $this->postJson("/api/scopes/{$scope->id}/files/{$id}/feature", [
+            'subject_type' => 'event', 'subject_id' => $event->id, 'enabled' => true,
+        ])->assertNoContent();
+        $this->assertSame($id, $event->fresh()->meta['cover_file_id']);
+        $other = Event::factory()->create(['scope_id' => $scope->id, 'created_by' => $owner->id]);
+        $this->postJson("/api/scopes/{$scope->id}/files/{$id}/feature", [
+            'subject_type' => 'event', 'subject_id' => $other->id, 'enabled' => true,
+        ])->assertUnprocessable();
+        $this->deleteJson("/api/scopes/{$scope->id}/files/{$id}")->assertNoContent();
+        $this->assertNull($event->fresh()->meta['cover_file_id'] ?? null);
+    }
+
+    public function test_avatar_can_be_seen_by_colleague_but_other_profile_files_stay_private(): void
+    {
+        [$owner, $scope] = $this->prepare();
+        $id = $this->upload($scope, $owner, [
+            'file' => UploadedFile::fake()->image('avatar.png', 800, 800), 'photo' => '1', 'visibility' => 'scope',
+            'category' => 'user', 'subject_type' => 'user', 'subject_id' => $owner->id,
+        ])->assertCreated()->json('data.id');
+        $otherId = $this->upload($scope, $owner, [
+            'file' => UploadedFile::fake()->image('other.png'), 'photo' => '1', 'visibility' => 'scope',
+            'category' => 'user', 'subject_type' => 'user', 'subject_id' => $owner->id,
+        ])->assertCreated()->json('data.id');
+        $this->postJson("/api/scopes/{$scope->id}/files/{$id}/feature", [
+            'subject_type' => 'user', 'subject_id' => $owner->id, 'enabled' => true,
+        ])->assertNoContent();
+        $this->assertSame($id, $owner->fresh()->profile['avatar']['file_id']);
+        $file = FilerFile::findOrFail($id);
+        $this->assertSame(512, getimagesizefromstring(Storage::disk('filer')->get($file->path))[0]);
+        $colleague = User::factory()->create();
+        ScopeMember::factory()->create(['scope_id' => $scope->id, 'user_id' => $colleague->id, 'permissions' => ['allow' => ['task.view'], 'deny' => ['contractor.manage']]]);
+        $this->actingAs($colleague)->getJson("/api/scopes/{$scope->id}/files/{$id}/image")->assertOk();
+        $this->getJson("/api/scopes/{$scope->id}/files/{$otherId}/image")->assertNotFound();
+        $this->postJson("/api/scopes/{$scope->id}/files/{$id}/feature", [
+            'subject_type' => 'user', 'subject_id' => $owner->id, 'enabled' => false,
+        ])->assertNotFound();
+    }
+
     private function upload(Scope $scope, User $actor, array $extra = []): TestResponse
     {
         return $this->actingAs($actor)->withHeaders(['X-App-Request' => 'Zuratax', 'Content-Type' => 'multipart/form-data; boundary=test'])

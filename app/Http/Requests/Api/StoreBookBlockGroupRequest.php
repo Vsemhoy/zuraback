@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Api;
 
 use Illuminate\Contracts\Validation\ValidationRule;
+
 class StoreBookBlockGroupRequest extends WorkspaceRequest
 {
     /**
@@ -17,7 +18,7 @@ class StoreBookBlockGroupRequest extends WorkspaceRequest
     public function rules(): array
     {
         return [
-            'type' => ['required', 'in:markdown,excalidraw,svg,table,code,callout,checklist,divider,embed'],
+            'type' => ['required', 'in:markdown,excalidraw,svg,photo,table,code,callout,checklist,divider,embed'],
             'role' => ['sometimes', 'string', 'max:32'],
             'visibility' => ['sometimes', 'in:private,scope,public'],
             'sort_order' => ['sometimes', 'integer'],
