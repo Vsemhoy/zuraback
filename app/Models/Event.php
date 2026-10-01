@@ -8,10 +8,17 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-#[Fillable(['scope_id', 'created_by', 'requester_id', 'type_id', 'project_id', 'section_id', 'parent_id', 'root_id', 'title', 'content', 'format', 'language', 'code_language', 'status', 'importance', 'visibility', 'relation_type', 'location', 'starts_at', 'ends_at', 'occurred_at', 'is_all_day', 'is_pinned', 'is_locked', 'comments_enabled', 'is_blurred', 'is_expert', 'sort_order', 'meta', 'diagram', 'attachments', 'photos'])]
+#[Fillable(['scope_id', 'created_by', 'requester_id', 'type_id', 'project_id', 'section_id', 'parent_id', 'root_id', 'title', 'content', 'format', 'language', 'code_language', 'status', 'importance', 'visibility', 'relation_type', 'location', 'starts_at', 'ends_at', 'occurred_at', 'is_all_day', 'is_pinned', 'is_locked', 'comments_enabled', 'is_blurred', 'is_expert', 'sort_order', 'meta', 'diagram', 'attachments', 'photos', 'recurrence_frequency', 'recurrence_until', 'recurrence_timezone', 'recurrence_user_id'])]
 class Event extends DomainModel
 {
     use HasEntityLinks, SoftDeletes;
+
+    protected $attributes = ['recurrence_timezone' => 'UTC'];
+
+    public function recurrenceUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'recurrence_user_id')->withTrashed();
+    }
 
     public function scope(): BelongsTo
     {

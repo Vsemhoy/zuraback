@@ -194,6 +194,7 @@ Route::prefix('api')->middleware(['spa.request', 'auth', 'active'])->group(funct
         Route::post('/event-sections', [EventSectionController::class, 'store']);
         Route::get('/events', [EventController::class, 'index'])->middleware(['scope.actor', 'scope.ability:task.view']);
         Route::post('/events', [EventController::class, 'store'])->middleware(['scope.actor', 'scope.ability:task.create']);
+        Route::get('/events/calendar', [EventController::class, 'calendar'])->middleware(['scope.actor', 'scope.ability:task.view']);
         Route::get('/events/{event}', [EventController::class, 'show'])->middleware(['scope.actor', 'scope.ability:task.view']);
         Route::patch('/events/{event}', [EventController::class, 'update'])->middleware(['scope.actor', 'scope.ability:task.update']);
         Route::delete('/events/{event}', [EventController::class, 'destroy'])->middleware(['scope.actor', 'scope.ability:task.update']);

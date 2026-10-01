@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Api;
 
 use Illuminate\Contracts\Validation\ValidationRule;
+
 class StoreEventRequest extends WorkspaceRequest
 {
     /**
@@ -17,6 +18,10 @@ class StoreEventRequest extends WorkspaceRequest
     public function rules(): array
     {
         return [
+            'recurrence_frequency' => ['sometimes', 'nullable', 'in:monthly,yearly'],
+            'recurrence_until' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
+            'recurrence_timezone' => ['sometimes', 'required', 'timezone'],
+            'recurrence_user_id' => ['sometimes', 'nullable', 'ulid'],
             'type_id' => ['nullable', 'ulid'],
             'project_id' => ['nullable', 'ulid'],
             'requester_id' => ['nullable', 'ulid'],
@@ -31,7 +36,7 @@ class StoreEventRequest extends WorkspaceRequest
             'visibility' => ['sometimes', 'in:private,scope,public'],
             'location' => ['nullable', 'string', 'max:255'],
             'starts_at' => ['nullable', 'date'],
-            'ends_at' => ['nullable', 'date', 'after_or_equal:starts_at'],
+            'ends_at' => ['nullable', 'date'],
             'occurred_at' => ['nullable', 'date'],
             'is_all_day' => ['sometimes', 'boolean'],
             'is_pinned' => ['sometimes', 'boolean'],
