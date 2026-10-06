@@ -23,6 +23,8 @@ class PlanItemRequest extends WorkspaceRequest
             'estimated_minutes' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:525600'],
             'priority' => ['sometimes', 'integer', 'between:1,5'],
             'completed' => ['sometimes', 'boolean'],
+            'task_dates' => ['sometimes', 'array', 'max:500'],
+            'task_dates.*' => ['required', 'date_format:Y-m-d'],
             'task_ids' => ['sometimes', 'array', 'max:500'],
             'task_ids.*' => ['required', 'ulid', 'distinct'],
         ];

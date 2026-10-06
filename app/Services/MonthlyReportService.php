@@ -107,7 +107,7 @@ class MonthlyReportService
             'id' => $task->id, 'task_key' => $task->task_key, 'title' => $task->title, 'result' => $task->result,
             'planned' => ($task->relationLoaded('planItems') && $task->planItems->contains(fn ($plan) => $plan->project_id === $task->project_id))
                 || ($task->relationLoaded('monthlyPlans') && $task->monthlyPlans->isNotEmpty()),
-            'status' => $task->status, 'project_id' => $task->project_id,
+            'status' => $task->status, 'due_at' => $task->due_at?->toISOString(), 'project_id' => $task->project_id,
             'project_name' => $task->project ? $task->project->key.' · '.$task->project->title : 'Без проекта',
             'assignee_id' => $task->assignee_id, 'assignee_name' => $task->assignee?->name ?? 'Без исполнителя',
             'customer_name' => $task->customer?->name ?? '', 'completed_at' => $task->completed_at?->toISOString(),

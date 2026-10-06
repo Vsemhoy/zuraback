@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Services\ContractorAccessService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Carbon;
@@ -30,6 +31,8 @@ class ContractorResource extends JsonResource
             'email' => $this->email,
             'activated_at' => $this->activated_at,
             'profile' => $this->profile,
+            'can_manage' => app(ContractorAccessService::class)->canManageContractor($request->user(), $request->route('scope'), $this->resource),
+            'can_change_avatar' => $request->user()->id === $this->id || $request->user()->id === $request->route('scope')->owner_id,
             'role' => $membership?->role ?? 'owner',
             'permissions' => $membership?->permissions ?? ['allow' => ['*'], 'deny' => []],
             'project_access_mode' => $membership?->project_access_mode ?? 'all',

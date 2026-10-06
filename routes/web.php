@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\BookConversationController;
 use App\Http\Controllers\Api\BookPageController;
 use App\Http\Controllers\Api\BookPageEditingController;
 use App\Http\Controllers\Api\BookSpaceController;
+use App\Http\Controllers\Api\ContractorAvatarController;
 use App\Http\Controllers\Api\ContractorController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\EntityLinkController;
@@ -68,6 +69,8 @@ Route::prefix('api')->middleware(['spa.request', 'auth', 'active'])->group(funct
         Route::get('/', [ScopeController::class, 'show']);
         Route::get('/search', [SearchController::class, 'index'])->middleware('scope.actor');
         Route::get('/dashboard', [DashboardController::class, 'show'])->middleware(['scope.actor', 'scope.ability:task.view']);
+        Route::get('/avatars', [ContractorAvatarController::class, 'index']);
+        Route::patch('/contractors/{contractor}/avatar', [ContractorAvatarController::class, 'update'])->whereUlid('contractor');
         Route::get('/contractors/options', [ContractorController::class, 'options']);
         Route::get('/contractors/assignable', [ContractorController::class, 'assignable'])->middleware('scope.ability:task.view');
         Route::get('/contractors', [ContractorController::class, 'index']);

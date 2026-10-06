@@ -31,7 +31,7 @@ class ContractorController extends Controller
     public function index(Request $request, Scope $scope): AnonymousResourceCollection
     {
         $canManageAll = $this->access->allows($request->user(), $scope, 'contractor.manage');
-        abort_unless($canManageAll || $this->access->allows($request->user(), $scope, 'agent.manage_own'), Response::HTTP_FORBIDDEN, 'The agent.manage_own capability is required.');
+        abort_unless($request->boolean('include_self') || $canManageAll || $this->access->allows($request->user(), $scope, 'agent.manage_own'), Response::HTTP_FORBIDDEN, 'The agent.manage_own capability is required.');
 
         $contractors = User::query()
             ->where(function ($query) use ($scope): void {
@@ -40,9 +40,15 @@ class ContractorController extends Controller
                         ->where('scope_id', $scope->id)
                         ->where('is_active', true));
             })
-            ->when(! $canManageAll, fn ($query) => $query
-                ->where('type', 'agent')
-                ->where('created_by', $request->user()->id))
+            ->when(! $canManageAll, fn ($query) => $query->where(function ($visible) use ($request, $scope): void {
+                $visible->where(function ($agents) use ($request, $scope): void {
+                    $agents->where('type', 'agent')->where('created_by', $request->user()->id)
+                        ->when(! $this->access->allows($request->user(), $scope, 'agent.manage_own'), fn ($none) => $none->whereRaw('1 = 0'));
+                });
+                if ($request->boolean('include_self')) {
+                    $visible->orWhereKey($request->user()->id);
+                }
+            }))
             ->with($this->relations($scope, $request->user()))
             ->orderByRaw("CASE type WHEN 'real' THEN 1 WHEN 'virtual' THEN 2 ELSE 3 END")
             ->orderBy('name')
@@ -58,7 +64,7 @@ class ContractorController extends Controller
     public function options(Request $request, Scope $scope): JsonResponse
     {
         $canManageAll = $this->access->allows($request->user(), $scope, 'contractor.manage');
-        abort_unless($canManageAll || $this->access->allows($request->user(), $scope, 'agent.manage_own'), Response::HTTP_FORBIDDEN, 'The agent.manage_own capability is required.');
+        abort_unless($request->boolean('include_self') || $canManageAll || $this->access->allows($request->user(), $scope, 'agent.manage_own'), Response::HTTP_FORBIDDEN, 'The agent.manage_own capability is required.');
 
         $manageableScopes = Scope::query()
             ->where('owner_id', $request->user()->id)
@@ -67,7 +73,7 @@ class ContractorController extends Controller
 
         return response()->json(['data' => [
             'abilities' => $canManageAll ? ContractorAccessService::ABILITIES : $this->access->delegableAbilities($request->user(), $scope),
-            'types' => $canManageAll ? User::TYPES : ['agent'],
+            'types' => $canManageAll ? User::TYPES : ($this->access->allows($request->user(), $scope, 'agent.manage_own') ? ['agent'] : []),
             'statuses' => User::STATUSES,
             'manageable_scopes' => $canManageAll ? $manageableScopes->map(fn (Scope $candidate): array => ['id' => $candidate->id, 'name' => $candidate->name])->values() : [],
             'can_manage_all' => $canManageAll,
@@ -189,6 +195,9 @@ class ContractorController extends Controller
             $data['activated_at'] = now();
         }
 
+        if (array_key_exists('profile', $data)) {
+            $data['profile'] = [...($data['profile'] ?? []), 'avatar' => $contractor->profile['avatar'] ?? null];
+        }
         $contractor->update($data);
 
         if (! $contractor->isAgent()) {

@@ -209,6 +209,9 @@ class FilerController extends Controller
         $class = FilerAccessService::SUBJECTS[$data['subject_type']];
         $subject = $class::find($data['subject_id']);
         abort_unless($this->access->file($actor, $scope, $file) && $this->access->subject($actor, $scope, $subject, true), 404);
+        if ($data['subject_type'] === 'user') {
+            abort_unless($request->user()->id === $scope->owner_id || $request->user()->id === $subject?->id, 403, 'Менять аватар может только сам пользователь или владелец.');
+        }
         abort_unless(in_array($file->mime, ['image/jpeg', 'image/png', 'image/webp'], true)
             && $file->visibility === 'scope'
             && $file->attachments()->where('subject_type', $data['subject_type'])->where('subject_id', $subject->id)->exists(), 422);
@@ -266,6 +269,8 @@ class FilerController extends Controller
     public function destroy(Request $request, Scope $scope, FilerFile $file): Response
     {
         abort_unless($this->access->file($this->context->actor($request), $scope, $file, true), 404);
+        abort_if($request->user()->id !== $scope->owner_id && User::query()
+            ->where('profile->avatar->file_id', $file->id)->where('id', '!=', $request->user()->id)->exists(), 403, 'Удалить выбранный аватар может только сам пользователь или владелец.');
         DB::transaction(function () use ($file): void {
             $locked = FilerFile::query()->lockForUpdate()->findOrFail($file->id);
             $disk = Storage::disk($locked->disk);

@@ -28,7 +28,7 @@ class PlanItemTest extends TestCase
         $first->tasks()->attach($task);
         $this->getJson($base.'/plans/candidates')->assertOk()->assertJsonCount(1, 'data.0.linked_plans')
             ->assertJsonPath('data.0.linked_plans.0.title', 'First plan')->assertJsonPath('data.0.linked_plans.0.month', '2026-10');
-        $second = $this->postJson($base.'/plans', ['title' => 'Second plan', 'month' => '2026-11', 'task_ids' => [$task->id]])
+        $second = $this->postJson($base.'/plans', ['title' => 'Second plan', 'month' => '2026-11', 'task_ids' => [$task->id], 'task_dates' => [$task->id => '2026-11-10']])
             ->assertOk()->assertJsonCount(2, 'data.tasks.0.linked_plans')->json('data.id');
         $this->getJson($base.'/plans/'.$first->id)->assertOk()->assertJsonCount(2, 'data.tasks.0.linked_plans');
         $this->getJson($base.'/plans?year=2026')->assertOk()->assertJsonCount(2, 'data.items.0.tasks.0.linked_plans');
@@ -58,6 +58,24 @@ class PlanItemTest extends TestCase
             ->assertJsonPath('data.0.linked_plans.0.id', $visible->id);
     }
 
+    public function test_task_links_require_calendar_dates_in_the_plan_month_and_save_atomically(): void
+    {
+        [$user, $scope, $base] = $this->workspace();
+        $task = Task::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id]);
+        $payload = ['title' => 'Scheduled work', 'month' => '2026-10', 'task_ids' => [$task->id]];
+        $this->postJson($base.'/plans', $payload)->assertUnprocessable()->assertJsonValidationErrors('task_dates.'.$task->id);
+        $this->postJson($base.'/plans', [...$payload, 'task_dates' => [$task->id => '2026-11-01']])->assertUnprocessable();
+        $this->assertDatabaseCount('plan_items', 0);
+        $this->assertNull($task->fresh()->due_at);
+        $id = $this->postJson($base.'/plans', [...$payload, 'task_dates' => [$task->id => '2026-10-31']])->assertOk()->json('data.id');
+        $this->assertDatabaseHas('tasks', ['id' => $task->id, 'due_at' => '2026-10-31 12:00:00']);
+        $this->patchJson($base.'/plans/'.$id, ['month' => '2026-11'])->assertUnprocessable();
+        $this->assertDatabaseHas('plan_items', ['id' => $id, 'month' => '2026-10']);
+        $this->patchJson($base.'/plans/'.$id, ['month' => '2026-11', 'task_dates' => [$task->id => '2026-11-01']])->assertOk();
+        $this->assertSame('2026-11-01', $task->fresh()->due_at->toDateString());
+        $this->postJson($base.'/plans', [...$payload, 'month' => '2026-11'])->assertOk();
+    }
+
     private function workspace(): array
     {
         $user = User::factory()->create(['is_executor' => true]);
@@ -85,7 +103,7 @@ class PlanItemTest extends TestCase
     {
         [$user, $scope, $base] = $this->workspace();
         $project = Project::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id]);
-        $done = Task::factory()->create(['scope_id' => $scope->id, 'project_id' => $project->id, 'created_by' => $user->id, 'status' => 'done']);
+        $done = Task::factory()->create(['scope_id' => $scope->id, 'project_id' => $project->id, 'created_by' => $user->id, 'status' => 'done', 'due_at' => '2026-10-01']);
         $todo = Task::factory()->create(['scope_id' => $scope->id, 'project_id' => $project->id, 'created_by' => $user->id, 'status' => 'todo', 'due_at' => '2026-10-05 10:00:00']);
         $id = $this->postJson($base.'/plans', ['title' => 'Этап', 'month' => '2026-10', 'project_id' => $project->id, 'task_ids' => [$done->id, $todo->id], 'completed' => true])
             ->assertOk()->assertJsonPath('data.tasks_count', 2)->assertJsonPath('data.completed_tasks_count', 1)->json('data.id');

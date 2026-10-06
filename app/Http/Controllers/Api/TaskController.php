@@ -75,6 +75,7 @@ class TaskController extends Controller
             abort_if($parent->parent_id !== null, 422, 'Only one level of true subtasks is supported.');
         }
 
+        $data = $this->completion->apply(new Task, $data, $actor);
         abort_if(($data['status'] ?? null) === 'blocked', 422, 'Create the task first, then use the blocker endpoint.');
         $task = DB::transaction(function () use ($request, $scope, $keys, $data): Task {
             $project = isset($data['project_id']) ? Project::query()->findOrFail($data['project_id']) : null;

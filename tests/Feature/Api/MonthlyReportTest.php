@@ -110,16 +110,18 @@ class MonthlyReportTest extends TestCase
         $this->assertSame(55, $report->snapshot['summary'][0]['bonus_percent']);
     }
 
-    public function test_plan_is_month_specific_idempotent_and_does_not_move_calendar_dates(): void
+    public function test_plan_is_month_specific_idempotent_and_updates_calendar_date(): void
     {
         [$user, $scope] = $this->workspace();
         $task = $this->task($user, $scope, ['status' => 'todo', 'completed_at' => null, 'due_at' => '2026-09-20 10:00:00']);
-        $payload = ['task_id' => $task->id, 'month' => '2026-10', 'assignee_id' => $user->id, 'expected_result' => 'Первый этап'];
+        $payload = ['task_id' => $task->id, 'month' => '2026-10', 'planned_on' => '2026-10-15', 'assignee_id' => $user->id, 'expected_result' => 'Первый этап'];
         $id = $this->actingAs($user)->withHeaders(self::HEADERS)->postJson($this->base($scope).'/plans', $payload)->assertCreated()->json('data.id');
+        $this->postJson($this->base($scope).'/plans', [...$payload, 'planned_on' => '2026-11-01'])->assertUnprocessable();
+        $this->postJson($this->base($scope).'/plans', collect($payload)->except('planned_on')->all())->assertUnprocessable()->assertJsonValidationErrors('planned_on');
         $this->postJson($this->base($scope).'/plans', [...$payload, 'expected_result' => 'Обновлённый этап'])->assertOk();
-        $this->postJson($this->base($scope).'/plans', [...$payload, 'month' => '2026-11'])->assertCreated();
+        $this->postJson($this->base($scope).'/plans', [...$payload, 'month' => '2026-11', 'planned_on' => '2026-11-15'])->assertCreated();
         $this->assertDatabaseCount('monthly_task_plans', 2);
-        $this->assertSame('2026-09-20 10:00:00', $task->fresh()->due_at->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-11-15 12:00:00', $task->fresh()->due_at->format('Y-m-d H:i:s'));
         $this->getJson($this->url($scope))->assertOk()->assertJsonCount(1, 'data.plan')->assertJsonPath('data.plan.0.expected_result', 'Обновлённый этап');
         $this->deleteJson($this->base($scope).'/plans/'.$id)->assertNoContent();
         $this->assertDatabaseMissing('monthly_task_plans', ['id' => $id]);
@@ -132,8 +134,8 @@ class MonthlyReportTest extends TestCase
         [$user, $scope] = $this->workspace();
         $foreign = Task::factory()->create();
         $done = $this->task($user, $scope);
-        $this->actingAs($user)->withHeaders(self::HEADERS)->postJson($this->base($scope).'/plans', ['task_id' => $foreign->id, 'month' => '2026-10'])->assertNotFound();
-        $this->postJson($this->base($scope).'/plans', ['task_id' => $done->id, 'month' => '2026-10'])->assertUnprocessable();
+        $this->actingAs($user)->withHeaders(self::HEADERS)->postJson($this->base($scope).'/plans', ['task_id' => $foreign->id, 'month' => '2026-10', 'planned_on' => '2026-10-15'])->assertNotFound();
+        $this->postJson($this->base($scope).'/plans', ['task_id' => $done->id, 'month' => '2026-10', 'planned_on' => '2026-10-15'])->assertUnprocessable();
         $this->getJson($this->url($scope, ['month' => '2026-13']))->assertUnprocessable()->assertJsonValidationErrors('month');
         $this->getJson($this->url($scope, ['timezone' => 'Not/AZone']))->assertUnprocessable()->assertJsonValidationErrors('timezone');
         $this->getJson($this->url($scope, ['user_id' => User::factory()->create()->id]))->assertUnprocessable();
@@ -190,7 +192,7 @@ class MonthlyReportTest extends TestCase
         [$user, $scope] = $this->workspace();
         $other = Scope::factory()->create(['owner_id' => $user->id]);
         $task = $this->task($user, $scope, ['status' => 'todo', 'completed_at' => null]);
-        $planId = $this->actingAs($user)->withHeaders(self::HEADERS)->postJson($this->base($scope).'/plans', ['month' => '2026-10', 'task_id' => $task->id])->assertCreated()->json('data.id');
+        $planId = $this->actingAs($user)->withHeaders(self::HEADERS)->postJson($this->base($scope).'/plans', ['month' => '2026-10', 'planned_on' => '2026-10-15', 'task_id' => $task->id])->assertCreated()->json('data.id');
         $id = $this->postJson($this->base($scope).'/archives', self::FILTERS)->assertCreated()->json('data.id');
         $this->getJson($this->base($other).'/archives/'.$id.'/download')->assertNotFound();
         $this->deleteJson($this->base($other).'/plans/'.$planId)->assertNotFound();

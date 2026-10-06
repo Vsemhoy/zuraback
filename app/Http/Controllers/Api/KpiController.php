@@ -50,7 +50,12 @@ class KpiController extends Controller
 
     public function stats(Request $request, Scope $scope): LaravelJsonResource
     {
-        $filters = $request->validate(['user_id' => ['nullable', 'ulid']]);
+        $filters = $request->validate([
+            'user_id' => ['nullable', 'ulid'],
+            'month' => ['sometimes', 'date_format:Y-m'],
+            'completion' => ['sometimes', 'in:completed,incomplete,all'],
+        ]);
+        $completion = $filters['completion'] ?? 'completed';
         $userId = $filters['user_id'] ?? null;
         if ($userId !== null) {
             $belongsToScope = $scope->owner_id === $userId || $scope->members()->where('user_id', $userId)->where('is_active', true)->exists();
@@ -63,14 +68,14 @@ class KpiController extends Controller
         $end = $month->endOfMonth();
         $areas = $scope->kpis()->orderBy('sort_order')->orderBy('name')->get();
         $tasks = $scope->tasks()->includedInReports()
-            ->where('status', 'done')
             ->whereNotNull('assignee_id')
             ->whereNotNull('kpi_id')
-            ->whereBetween('completed_at', [$start, $end])
+            ->whereBetween('due_at', [$start, $end])
+            ->whereNotIn('status', ['cancelled'])
             ->when($userId, fn ($query) => $query->where('assignee_id', $userId))
             ->with('project:id,title,key,color')
-            ->orderBy('completed_at')
-            ->get(['id', 'project_id', 'assignee_id', 'kpi_id', 'task_key', 'title', 'completed_at']);
+            ->orderBy('due_at')->orderBy('id')
+            ->get(['id', 'project_id', 'assignee_id', 'kpi_id', 'task_key', 'title', 'status', 'due_at', 'completed_at']);
         $tasksByArea = $tasks->groupBy(fn ($task) => $task->assignee_id.'|'.$task->kpi_id);
         $targets = $this->targets($scope);
         $people = User::query()
@@ -80,10 +85,15 @@ class KpiController extends Controller
             ->when($userId, fn ($query) => $query->whereKey($userId))
             ->orderBy('name')
             ->get(['id', 'name', 'position', 'type', 'status'])
-            ->map(function (User $person) use ($areas, $tasksByArea, $targets): array {
-                $rows = $areas->map(function ($area) use ($tasksByArea, $person): array {
-                    $completedTasks = $tasksByArea->get($person->id.'|'.$area->id, collect());
-                    $completed = $completedTasks->count();
+            ->map(function (User $person) use ($areas, $tasksByArea, $targets, $completion): array {
+                $rows = $areas->map(function ($area) use ($tasksByArea, $person, $completion): array {
+                    $areaTasks = $tasksByArea->get($person->id.'|'.$area->id, collect());
+                    $completed = $areaTasks->where('status', 'done')->count();
+                    $visibleTasks = $areaTasks->filter(fn ($task): bool => match ($completion) {
+                        'completed' => $task->status === 'done',
+                        'incomplete' => $task->status !== 'done',
+                        default => true,
+                    });
                     $qualified = $completed >= $area->minimum_completed_tasks;
 
                     return [
@@ -95,15 +105,17 @@ class KpiController extends Controller
                         'completed_tasks' => $completed,
                         'qualified' => $qualified,
                         'awarded_points' => $qualified ? $area->points : 0,
-                        'tasks' => $completedTasks->map(fn ($task): array => [
+                        'tasks' => $visibleTasks->map(fn ($task): array => [
                             'id' => $task->id,
                             'task_key' => $task->task_key,
                             'title' => $task->title,
+                            'status' => $task->status,
+                            'due_at' => $task->due_at,
                             'completed_at' => $task->completed_at,
                             'project' => $task->project,
                         ])->values(),
                     ];
-                })->filter(fn (array $row): bool => $row['completed_tasks'] > 0)->values();
+                });
                 $salaryPoints = (int) $rows->where('kind', 'salary')->sum('awarded_points');
                 $bonusPoints = (int) $rows->where('kind', 'bonus')->sum('awarded_points');
 
@@ -115,7 +127,7 @@ class KpiController extends Controller
                     'bonus_points' => $bonusPoints,
                     'bonus_target' => $targets['bonus_target_points'],
                     'payable_bonus_percent' => min($targets['bonus_cap_percent'], $bonusPoints),
-                    'areas' => $rows->values(),
+                    'areas' => $rows->filter(fn (array $row): bool => $row['tasks']->isNotEmpty())->values(),
                 ];
             })->values();
 

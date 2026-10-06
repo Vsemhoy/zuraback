@@ -99,7 +99,7 @@ class TaskChecklistItemController extends Controller
             $subtask = $scope->tasks()->create([
                 ...$identity, 'project_id' => $task->project_id, 'parent_id' => $task->id,
                 'created_by' => $this->context->actor($request)->id, 'assignee_id' => $lockedItem->assignee_id,
-                'title' => $lockedItem->title, 'due_at' => $lockedItem->due_at,
+                'title' => $lockedItem->title, 'due_at' => $lockedItem->due_at ?? ($lockedItem->completed_at ? today()->setTime(12, 0) : null),
                 'status' => $lockedItem->completed_at ? 'done' : 'todo', 'completed_at' => $lockedItem->completed_at,
             ]);
             ActivityLog::query()->create([

@@ -67,12 +67,13 @@ class MonthlyReportController extends Controller
             ->when($data['q'] ?? null, fn ($query, $term) => $query->where(fn ($query) => $query->where('title', 'like', '%'.$term.'%')->orWhere('task_key', 'like', '%'.$term.'%')))
             ->with(['project:id,title,key', 'assignee:id,name'])->orderBy('sort_order')->orderBy('id');
 
-        return JsonResource::collection($query->paginate(30, ['id', 'project_id', 'task_key', 'title', 'assignee_id', 'status']));
+        return JsonResource::collection($query->paginate(30, ['id', 'project_id', 'task_key', 'title', 'assignee_id', 'status', 'due_at']));
     }
 
     public function savePlan(MonthlyTaskPlanRequest $request, Scope $scope): JsonResource
     {
         $data = $request->validated();
+        abort_unless(substr($data['planned_on'], 0, 7) === $data['month'], 422, 'Дата задачи должна быть в пределах месяца плана.');
         $actor = $this->context->actor($request);
         $task = $this->reports->visibleTasks($actor, $scope)->with('project')->findOrFail($data['task_id']);
         abort_unless($this->access->canAccessTask($actor, $scope, $task, 'task.update'), 403);
@@ -84,7 +85,13 @@ class MonthlyReportController extends Controller
             abort_unless($person && $member && $this->access->canAccessTask($person, $scope, $task), 422, 'Исполнитель недоступен для этой задачи.');
         }
         $plan = DB::transaction(function () use ($scope, $task, $data, $assigneeId, $actor, $request): MonthlyTaskPlan {
-            $task->newQuery()->whereKey($task->id)->lockForUpdate()->firstOrFail();
+            $task = $task->newQuery()->whereKey($task->id)->lockForUpdate()->firstOrFail();
+            if ($task->due_at?->toDateString() !== $data['planned_on']) {
+                $previousDate = $task->due_at;
+                $task->update(['due_at' => $data['planned_on'].' 12:00:00']);
+                ActivityLog::query()->create(['scope_id' => $scope->id, 'actor_id' => $actor->id, 'subject_type' => 'task', 'subject_id' => $task->id,
+                    'action' => 'task.planner_rescheduled', 'before' => ['due_at' => $previousDate], 'after' => ['due_at' => $task->due_at], 'context' => $this->context->auditMetadata($request)]);
+            }
             $plan = MonthlyTaskPlan::query()->firstOrNew(['task_id' => $task->id, 'month' => $data['month']]);
             $before = $plan->exists ? $plan->toArray() : null;
             $plan->fill(['scope_id' => $scope->id, 'created_by' => $plan->created_by ?? $actor->id, 'assignee_id' => $assigneeId, 'expected_result' => $data['expected_result'] ?? null])->save();

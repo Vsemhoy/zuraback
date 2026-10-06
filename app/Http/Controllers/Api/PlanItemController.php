@@ -59,7 +59,7 @@ class PlanItemController extends Controller
             ->when($data['q'] ?? null, fn ($q, $v) => $q->where(fn ($q) => $q->where('title', 'like', '%'.$v.'%')->orWhere('task_key', 'like', '%'.$v.'%')));
 
         $page = $query->with($this->plans->taskPlanRelations($actor, $scope))
-            ->orderByDesc('created_at')->orderBy('id')->paginate(30, ['id', 'scope_id', 'project_id', 'title', 'task_key', 'status']);
+            ->orderByDesc('created_at')->orderBy('id')->paginate(30, ['id', 'scope_id', 'project_id', 'title', 'task_key', 'status', 'due_at']);
         $page->setCollection($page->getCollection()->map(fn ($task): array => $this->plans->taskRow($task)));
 
         return JsonResource::collection($page);

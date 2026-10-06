@@ -23,6 +23,10 @@ class TaskCompletionService
         }
 
         $changes['completed_at'] = $task->completed_at ?? now();
+        $dueAt = array_key_exists('due_at', $changes) ? $changes['due_at'] : $task->due_at;
+        if ($dueAt === null) {
+            $changes['due_at'] = today()->setTime(12, 0);
+        }
         $assigneeId = array_key_exists('assignee_id', $changes)
             ? $changes['assignee_id']
             : $task->assignee_id;
