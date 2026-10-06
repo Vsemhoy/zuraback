@@ -100,6 +100,7 @@ Route::prefix('agent')->middleware(['auth:sanctum', 'active', 'agent', 'agent.au
         Route::post('/books/{book}/pages/{bookPage}/blocks', [BookBlockGroupController::class, 'store'])->middleware('book.access:book.update');
         Route::post('/books/{book}/pages/{bookPage}/blocks/reorder', [BookBlockGroupController::class, 'reorder'])->middleware('book.access:book.update');
         Route::post('/books/{book}/pages/{bookPage}/blocks/{group}/versions', [BookBlockGroupController::class, 'storeVersion'])->middleware('book.access:book.update');
+        Route::delete('/books/{book}/pages/{bookPage}/blocks/{group}', [BookBlockGroupController::class, 'destroy'])->middleware('book.access:book.update');
         Route::get('/tasks', [TaskController::class, 'index'])->middleware('scope.ability:task.view');
         Route::post('/tasks', [TaskController::class, 'store'])->middleware('scope.ability:task.create');
         Route::get('/tasks/search', [TaskController::class, 'search'])->middleware('scope.ability:task.view');

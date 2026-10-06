@@ -26,12 +26,12 @@ class AgentPlanApiTest extends TestCase
         return [$agent, $scope, "/api/agent/scopes/{$scope->id}/plans"];
     }
 
-    public function test_agent_can_manage_plans_and_links_without_changing_tasks(): void
+    public function test_agent_can_manage_plans_and_schedule_linked_tasks(): void
     {
         [$agent, $scope, $url] = $this->agent();
         $task = Task::factory()->create(['scope_id' => $scope->id, 'project_id' => null, 'status' => 'todo']);
         $this->getJson($url.'/options')->assertOk()->assertJsonStructure(['data' => ['projects', 'people']]);
-        $id = $this->postJson($url, ['title' => 'Monthly work', 'month' => '2026-10', 'task_ids' => [$task->id]])
+        $id = $this->postJson($url, ['title' => 'Monthly work', 'month' => '2026-10', 'task_ids' => [$task->id], 'task_dates' => [$task->id => '2026-10-15']])
             ->assertOk()->assertJsonPath('data.tasks_count', 1)->json('data.id');
         $this->getJson($url.'/candidates')->assertOk()->assertJsonPath('data.0.linked_plans.0.id', $id);
         $this->patchJson("{$url}/{$id}", ['actual_result' => 'Verified', 'completed' => true])->assertOk()
@@ -40,7 +40,7 @@ class AgentPlanApiTest extends TestCase
         $this->getJson($url.'?year=2026&month=2026-10&status=done')->assertOk()->assertJsonPath('data.total', 1)->assertJsonPath('data.done', 1);
         $this->getJson("{$url}/{$id}")->assertOk()->assertJsonPath('data.actual_result', 'Verified');
         $this->assertDatabaseHas('plan_item_task', ['plan_item_id' => $id, 'task_id' => $task->id]);
-        $this->assertDatabaseHas('tasks', ['id' => $task->id, 'status' => 'todo']);
+        $this->assertDatabaseHas('tasks', ['id' => $task->id, 'status' => 'todo', 'due_at' => '2026-10-15 12:00:00']);
         $this->assertDatabaseHas('activity_logs', ['actor_id' => $agent->id, 'subject_id' => $id, 'action' => 'plan.updated']);
         $audit = ActivityLog::query()->where('actor_id', $agent->id)->where('action', 'agent.api.patch')->firstOrFail();
         $this->assertSame("{$url}/{$id}", $audit->context['path']);

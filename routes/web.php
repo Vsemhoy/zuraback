@@ -191,6 +191,7 @@ Route::prefix('api')->middleware(['spa.request', 'auth', 'active'])->group(funct
         Route::post('/books/{book}/pages/{bookPage}/blocks', [BookBlockGroupController::class, 'store'])->middleware(['scope.actor', 'book.access:book.update']);
         Route::post('/books/{book}/pages/{bookPage}/blocks/reorder', [BookBlockGroupController::class, 'reorder'])->middleware(['scope.actor', 'book.access:book.update']);
         Route::post('/books/{book}/pages/{bookPage}/blocks/{group}/versions', [BookBlockGroupController::class, 'storeVersion'])->middleware(['scope.actor', 'book.access:book.update']);
+        Route::delete('/books/{book}/pages/{bookPage}/blocks/{group}', [BookBlockGroupController::class, 'destroy'])->middleware(['scope.actor', 'book.access:book.update']);
         Route::get('/event-types', [EventTypeController::class, 'index']);
         Route::post('/event-types', [EventTypeController::class, 'store']);
         Route::get('/event-sections', [EventSectionController::class, 'index']);

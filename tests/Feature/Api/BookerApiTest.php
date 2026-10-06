@@ -29,6 +29,31 @@ class BookerApiTest extends TestCase
             ->assertJsonPath('data.master_block.payload.caption', 'New caption');
     }
 
+    public function test_block_deletion_requires_the_page_lock_and_can_be_cancelled(): void
+    {
+        $user = User::factory()->create();
+        $scope = Scope::factory()->create(['owner_id' => $user->id]);
+        $book = $scope->books()->create(['created_by' => $user->id, 'title' => 'Book']);
+        $page = $book->pages()->create(['created_by' => $user->id, 'title' => 'Page']);
+        $group = $page->groups()->create(['created_by' => $user->id, 'type' => 'markdown']);
+        $block = $group->versions()->create(['created_by' => $user->id, 'content' => 'Keep this text']);
+        $group->update(['master_block_id' => $block->id]);
+        $base = "/api/scopes/{$scope->id}/books/{$book->id}/pages/{$page->id}";
+        $this->actingAs($user)->withHeaders(self::HEADERS);
+        $this->deleteJson($base.'/blocks/'.$group->id)->assertStatus(423);
+        $this->postJson($base.'/editing')->assertOk();
+        $otherPage = $book->pages()->create(['created_by' => $user->id, 'title' => 'Other']);
+        $otherGroup = $otherPage->groups()->create(['created_by' => $user->id, 'type' => 'divider']);
+        $this->deleteJson($base.'/blocks/'.$otherGroup->id)->assertNotFound();
+        $this->deleteJson($base.'/blocks/'.$group->id)->assertNoContent();
+        $this->assertSoftDeleted('book_block_groups', ['id' => $group->id]);
+        $this->getJson($base)->assertOk()->assertJsonCount(0, 'data.groups');
+        $this->postJson($base.'/editing/cancel')->assertOk()->assertJsonCount(1, 'data.groups')
+            ->assertJsonPath('data.groups.0.master_block.content', 'Keep this text');
+        $space = $scope->bookSpaces()->create(['created_by' => $user->id, 'title' => 'Empty']);
+        $this->deleteJson("/api/scopes/{$scope->id}/book-spaces/{$space->id}")->assertNoContent();
+    }
+
     private const HEADERS = ['Accept' => 'application/json', 'Content-Type' => 'application/json', 'X-App-Request' => 'Zuratax'];
 
     public function test_booker_tree_and_block_versions_work(): void
