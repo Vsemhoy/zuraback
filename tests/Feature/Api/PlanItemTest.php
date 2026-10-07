@@ -23,15 +23,15 @@ class PlanItemTest extends TestCase
     public function test_candidates_and_selected_tasks_include_existing_plans_without_blocking_reuse(): void
     {
         [$user, $scope, $base] = $this->workspace();
-        $task = Task::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id, 'project_id' => null]);
+        $task = Task::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id, 'project_id' => null, 'assignee_id' => $user->id, 'status' => 'done']);
         $first = PlanItem::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id, 'project_id' => null, 'title' => 'First plan', 'month' => '2026-10']);
         $first->tasks()->attach($task);
         $this->getJson($base.'/plans/candidates')->assertOk()->assertJsonCount(1, 'data.0.linked_plans')
-            ->assertJsonPath('data.0.linked_plans.0.title', 'First plan')->assertJsonPath('data.0.linked_plans.0.month', '2026-10');
+            ->assertJsonPath('data.0.assignee.name', $user->name)->assertJsonPath('data.0.linked_plans.0.title', 'First plan')->assertJsonPath('data.0.linked_plans.0.month', '2026-10');
         $second = $this->postJson($base.'/plans', ['title' => 'Second plan', 'month' => '2026-11', 'task_ids' => [$task->id], 'task_dates' => [$task->id => '2026-11-10']])
             ->assertOk()->assertJsonCount(2, 'data.tasks.0.linked_plans')->json('data.id');
         $this->getJson($base.'/plans/'.$first->id)->assertOk()->assertJsonCount(2, 'data.tasks.0.linked_plans');
-        $this->getJson($base.'/plans?year=2026')->assertOk()->assertJsonCount(2, 'data.items.0.tasks.0.linked_plans');
+        $this->getJson($base.'/plans?year=2026')->assertOk()->assertJsonCount(2, 'data.items.0.tasks.0.linked_plans')->assertJsonPath('data.items.0.tasks.0.assignee.name', $user->name);
         $this->deleteJson($base.'/plans/'.$second)->assertNoContent();
         $this->getJson($base.'/plans/candidates')->assertOk()->assertJsonCount(1, 'data.0.linked_plans');
         $this->patchJson($base.'/plans/'.$first->id, ['task_ids' => []])->assertOk();

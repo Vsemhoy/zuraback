@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\BookBlockGroup;
 use App\Models\BookPage;
+use App\Models\LoreEntry;
 use App\Models\Scope;
 use App\Services\ContractorAccessService;
 use App\Services\ContractorContext;
@@ -14,7 +15,7 @@ use Illuminate\Http\Request;
 
 class SearchController extends Controller
 {
-    private const TYPES = ['task', 'project', 'book', 'book_page', 'book_block'];
+    private const TYPES = ['task', 'project', 'book', 'book_page', 'book_block', 'lore', 'event'];
 
     public function __construct(
         private readonly ContractorAccessService $access,
@@ -28,6 +29,8 @@ class SearchController extends Controller
             'types' => ['nullable', 'string', 'max:100'],
             'project_id' => ['nullable', 'string', 'max:26'],
             'user_id' => ['nullable', 'string', 'max:26'],
+            'completed_by' => ['nullable', 'ulid'],
+            'created_by' => ['nullable', 'ulid'],
             'status' => ['nullable', 'string', 'max:40'],
             'date_from' => ['nullable', 'date'],
             'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
@@ -44,12 +47,17 @@ class SearchController extends Controller
             'date_from' => $data['date_from'] ?? null,
             'date_to' => $data['date_to'] ?? null,
         ];
+        if (! empty($data['completed_by']) || ! empty($data['created_by'])) {
+            $types = array_values(array_intersect($types, ['task']));
+        }
         $actor = $this->context->actor($request);
         $results = collect();
 
         if ($this->wants($types, 'task') && $this->access->allows($actor, $scope, 'task.view')) {
             $query = $this->access->constrainTasks($scope->tasks()->getQuery(), $actor, $scope)
                 ->with(['project:id,title,key,color', 'assignee:id,name']);
+            $query->when($data['completed_by'] ?? null, fn (Builder $items, string $id): Builder => $items->where('assignee_id', $id)->where('status', 'done'));
+            $query->when($data['created_by'] ?? null, fn (Builder $items, string $id): Builder => $items->where('created_by', $id));
             $this->text($query, ['task_key', 'title', 'description', 'result'], $pattern);
             $this->dates($query, $filters);
             $query->when($filters['project_id'], fn (Builder $items, string $id): Builder => $items->where('project_id', $id));
@@ -166,6 +174,58 @@ class SearchController extends Controller
                     );
                 }));
             }
+        }
+
+        if ($this->wants($types, 'lore') && $this->access->allows($actor, $scope, 'task.view')) {
+            $projectIds = $this->access->constrainProjects($scope->projects()->getQuery(), $actor, $scope)->pluck('id');
+            $query = LoreEntry::query()->where('scope_id', $scope->id)
+                ->where(fn (Builder $items) => $items->whereIn('project_id', $projectIds)
+                    ->when($this->access->canAccessUnprojected($actor, $scope), fn (Builder $items) => $items->orWhereNull('project_id')))
+                ->where(fn (Builder $items) => $items->where('visibility', '!=', 'private')->orWhere('created_by', $actor->id))
+                ->with('project:id,title,key,color');
+            $revisionMatch = function (Builder $revisions) use ($pattern, $filters): void {
+                $this->text($revisions, ['title', 'content'], $pattern);
+                $revisions->when($filters['status'], fn (Builder $items, string $status) => $items->where('status', $status));
+            };
+            $query->where(function (Builder $items) use ($pattern, $revisionMatch, $filters): void {
+                $items->whereHas('revisions', $revisionMatch);
+                if (! $filters['status']) {
+                    $items->orWhere(function (Builder $codes) use ($pattern): void {
+                        $this->text($codes, ['code'], $pattern);
+                    });
+                }
+            })->with(['revisions' => fn ($revisions) => $revisions->orderByDesc('version')]);
+            $query->when($filters['project_id'], fn (Builder $items, string $id) => $items->where('project_id', $id));
+            $query->when($filters['user_id'], fn (Builder $items, string $id) => $items->where('created_by', $id));
+            $this->dates($query, $filters);
+            $results = $results->concat($query->latest('updated_at')->limit(50)->get()->map(function ($entry) use ($needle, $scope, $filters): array {
+                $revision = $entry->revisions->first(fn ($revision) => (! $filters['status'] || $revision->status === $filters['status']) &&
+                    (mb_stripos($revision->title, $needle) !== false || mb_stripos($revision->content, $needle) !== false)) ?? $entry->revisions->first();
+
+                return $this->result('lore', $entry->id, $revision?->title ?? $entry->code,
+                    $entry->code.($revision ? ' · Версия '.$revision->version : ''),
+                    $this->excerpt($revision?->content, $needle), "/lore/{$scope->id}/{$entry->id}",
+                    $entry->updated_at, $needle, $entry->code, ['status' => $revision?->status, 'project' => $entry->project]);
+            }));
+        }
+
+        if ($this->wants($types, 'event') && $this->access->allows($actor, $scope, 'task.view')) {
+            $projectIds = $this->access->constrainProjects($scope->projects()->getQuery(), $actor, $scope)->where('show_in_eventor', true)->pluck('id');
+            $query = $scope->events()->getQuery()
+                ->where(fn (Builder $items) => $items->whereIn('project_id', $projectIds)
+                    ->when($this->access->canAccessUnprojected($actor, $scope), fn (Builder $items) => $items->orWhereNull('project_id')))
+                ->when($scope->owner_id !== $actor->id, fn (Builder $items) => $items->where(fn (Builder $visible) => $visible->where('visibility', '!=', 'private')->orWhere('created_by', $actor->id)))
+                ->with('project:id,title,key,color');
+            $this->text($query, ['title', 'content', 'location'], $pattern);
+            $this->dates($query, $filters);
+            $query->when($filters['project_id'], fn (Builder $items, string $id) => $items->where('project_id', $id));
+            $query->when($filters['status'], fn (Builder $items, string $status) => $items->where('status', $status));
+            $query->when($filters['user_id'], fn (Builder $items, string $id) => $items->where(fn (Builder $users) => $users->where('created_by', $id)->orWhere('requester_id', $id)));
+            $results = $results->concat($query->latest('updated_at')->limit(50)->get()->map(fn ($event): array => $this->result(
+                'event', $event->id, $event->title, $event->location,
+                $this->excerpt($event->content, $needle), "/events?event={$event->id}",
+                $event->updated_at, $needle, null, ['status' => $event->status, 'project' => $event->project],
+            )));
         }
 
         $sorted = $results->sort(function (array $left, array $right): int {
