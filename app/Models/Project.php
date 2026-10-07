@@ -5,10 +5,11 @@ namespace App\Models;
 use App\Models\Concerns\HasEntityLinks;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-#[Fillable(['scope_id', 'created_by', 'title', 'key', 'next_task_number', 'description', 'result', 'status', 'priority', 'color', 'visibility', 'include_in_reports', 'show_in_tasker', 'show_in_eventor', 'event_comments_enabled', 'started_on', 'due_on', 'completed_at', 'is_pinned', 'sort_order', 'meta'])]
+#[Fillable(['department_id', 'scope_id', 'created_by', 'title', 'key', 'next_task_number', 'description', 'result', 'status', 'priority', 'color', 'visibility', 'include_in_reports', 'show_in_tasker', 'show_in_eventor', 'event_comments_enabled', 'started_on', 'due_on', 'completed_at', 'is_pinned', 'sort_order', 'meta'])]
 class Project extends DomainModel
 {
     use HasEntityLinks, SoftDeletes;
@@ -17,6 +18,16 @@ class Project extends DomainModel
         'color' => '#2668D8',
         'include_in_reports' => true,
     ];
+
+    public function departments(): BelongsToMany
+    {
+        return $this->belongsToMany(Department::class);
+    }
+
+    public function department(): BelongsTo
+    {
+        return $this->belongsTo(Department::class);
+    }
 
     public function scope(): BelongsTo
     {

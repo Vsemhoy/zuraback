@@ -16,7 +16,7 @@ use Throwable;
 
 class MonthlyReportService
 {
-    public function __construct(private readonly ContractorAccessService $access, private readonly MonthlyReportWorkbook $workbook, private readonly PlanItemService $plans) {}
+    public function __construct(private readonly ContractorAccessService $access, private readonly MonthlyReportWorkbook $workbook, private readonly PlanItemService $plans, private readonly KpiProfileService $profiles) {}
 
     public function visibleTasks(User $actor, Scope $scope): Builder
     {
@@ -50,27 +50,27 @@ class MonthlyReportService
         $knownPerson = $personId ? User::query()->find($personId) : null;
         abort_if($personId && ! $people->contains('id', $personId) && $tasks->isEmpty(), 422, 'Сотрудник недоступен в этом скоупе.');
         $completed = $tasks->map(fn (Task $task): array => $this->taskRow($task))->values();
-        $qualified = $tasks->filter(fn (Task $task): bool => $task->kpi !== null && $task->kpi->scope_id === $scope->id
-            && $task->kpi->kind === 'bonus' && $task->assignee !== null && $task->assignee->is_executor
-            && in_array($task->assignee->type, ['real', 'virtual'], true))
+        $versions = $this->profiles->versions($scope);
+        $profileByUser = $people->mapWithKeys(fn ($person) => [$person->id => $this->profiles->resolve($scope, $person->id, $month->format('Y-m'), $versions)]);
+        $qualified = $tasks->filter(fn (Task $task): bool => $task->assignee !== null && $task->assignee->is_executor && in_array($task->assignee->type, ['real', 'virtual'], true))
             ->groupBy(fn (Task $task): string => $task->assignee_id.'|'.$task->kpi_id)
-            ->filter(fn ($group): bool => $group->count() >= max(1, (int) $group->first()->kpi->minimum_completed_tasks))
-            ->map(function ($group): array {
+            ->map(function ($group) use ($profileByUser): ?array {
                 $task = $group->first();
+                $kpi = collect($profileByUser->get($task->assignee_id)['items'] ?? [])->firstWhere('id', $task->kpi_id);
+                if (! $kpi || $kpi['kind'] !== 'bonus' || $group->count() < $kpi['minimum_completed_tasks']) {
+                    return null;
+                }
 
-                return [
-                    'user_id' => $task->assignee_id, 'user_name' => $task->assignee->name,
-                    'kpi_id' => $task->kpi_id, 'name' => $task->kpi->name,
-                    'points' => (int) $task->kpi->points, 'minimum_completed_tasks' => (int) $task->kpi->minimum_completed_tasks,
-                    'completed_tasks' => $group->count(), 'tasks' => $group->map(fn (Task $task): array => $this->taskRow($task))->values()->all(),
-                ];
-            })->values();
-        $cap = max(0, min(100, (int) data_get($scope->settings, 'kpi.bonus_cap_percent', 75)));
+                return ['user_id' => $task->assignee_id, 'user_name' => $task->assignee->name, 'kpi_id' => $task->kpi_id, 'name' => $kpi['name'],
+                    'points' => $kpi['points'], 'minimum_completed_tasks' => $kpi['minimum_completed_tasks'],
+                    'completed_tasks' => $group->count(), 'tasks' => $group->map(fn (Task $task): array => $this->taskRow($task))->values()->all()];
+            })->filter()->values();
         $summaryPeople = $people->when($personId, fn ($rows) => $rows->where('id', $personId))->mapWithKeys(fn (User $person): array => [$person->id => $person->name]);
         foreach ($completed as $task) {
             $summaryPeople->put($task['assignee_id'] ?? '', $task['assignee_name']);
         }
-        $summary = $summaryPeople->map(function (string $name, string $id) use ($completed, $qualified, $cap): array {
+        $summary = $summaryPeople->map(function (string $name, string $id) use ($completed, $qualified, $profileByUser): array {
+            $cap = (int) ($profileByUser->get($id)['targets']['bonus_cap_percent'] ?? 75);
             $kpis = $qualified->where('user_id', $id);
             $points = (int) $kpis->sum('points');
 
@@ -88,7 +88,7 @@ class MonthlyReportService
             'schema_version' => 2, 'scope' => ['id' => $scope->id, 'name' => $scope->name],
             'month' => $month->format('Y-m'), 'plan_month' => $next->format('Y-m'), 'timezone' => $filters['timezone'],
             'person_id' => $personId, 'person_name' => $knownPerson?->name, 'generated_at' => now()->toISOString(),
-            'bonus_cap_percent' => $cap, 'summary' => $summary->all(), 'kpis' => $qualified->all(), 'completed' => $completed->all(),
+            'bonus_cap_percent' => $this->profiles->resolve($scope, $personId, $month->format('Y-m'), $versions)['targets']['bonus_cap_percent'], 'summary' => $summary->all(), 'kpis' => $qualified->all(), 'completed' => $completed->all(),
             'people' => $people->toArray(),
             'plan_year' => (int) ($filters['plan_year'] ?? $month->year),
             'plan_items' => $this->plans->year($actor, $scope, (int) ($filters['plan_year'] ?? $month->year), $personId),

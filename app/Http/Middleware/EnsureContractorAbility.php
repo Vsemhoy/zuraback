@@ -36,6 +36,11 @@ class EnsureContractorAbility
         }
 
         $actor = $this->context->actor($request);
+        if ($task instanceof Task && $task->department_id) {
+            abort_unless($this->access->canAccessTask($actor, $scope, $task, $ability), Response::HTTP_FORBIDDEN);
+
+            return $next($request);
+        }
         $canAccessUnprojected = ! $task instanceof Task || $task->project_id !== null || $this->access->canAccessUnprojected($actor, $scope);
 
         abort_unless(

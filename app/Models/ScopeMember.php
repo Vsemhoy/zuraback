@@ -5,9 +5,14 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['scope_id', 'user_id', 'role', 'permissions', 'project_access_mode', 'book_access_mode', 'sort_order', 'is_active', 'joined_at'])]
+#[Fillable(['department_id', 'scope_id', 'user_id', 'role', 'permissions', 'project_access_mode', 'book_access_mode', 'sort_order', 'is_active', 'joined_at'])]
 class ScopeMember extends DomainModel
 {
+    public function department(): BelongsTo
+    {
+        return $this->belongsTo(Department::class);
+    }
+
     public function scope(): BelongsTo
     {
         return $this->belongsTo(Scope::class);

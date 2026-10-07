@@ -24,7 +24,7 @@ class DashboardApiTest extends TestCase
         $project = $scope->projects()->create(['created_by' => $owner->id, 'title' => 'Dashboard project', 'key' => 'DSH']);
         $kpi = $scope->kpis()->create(['created_by' => $owner->id, 'name' => 'Ship work', 'kind' => 'bonus', 'points' => 25, 'minimum_completed_tasks' => 1]);
         $openTask = $scope->tasks()->create(['project_id' => $project->id, 'created_by' => $owner->id, 'assignee_id' => $owner->id, 'title' => 'My open task', 'status' => 'todo']);
-        $scope->tasks()->create(['project_id' => $project->id, 'created_by' => $owner->id, 'assignee_id' => $owner->id, 'kpi_id' => $kpi->id, 'title' => 'My completed KPI task', 'status' => 'done', 'completed_at' => now()]);
+        $scope->tasks()->create(['project_id' => $project->id, 'created_by' => $owner->id, 'assignee_id' => $owner->id, 'kpi_id' => $kpi->id, 'title' => 'My completed KPI task', 'status' => 'done', 'due_at' => now(), 'completed_at' => now()]);
         $book = $scope->books()->create(['created_by' => $owner->id, 'title' => 'Fresh handbook', 'visibility' => 'scope']);
         $page = $book->pages()->create(['created_by' => $owner->id, 'title' => 'Dashboard page']);
         Comment::query()->create(['scope_id' => $scope->id, 'commentable_type' => 'book_page', 'commentable_id' => $page->id, 'created_by' => $colleague->id, 'content' => 'Проверь этот раздел']);

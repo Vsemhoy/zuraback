@@ -23,6 +23,9 @@ class StoreProjectRequest extends WorkspaceRequest
     public function rules(): array
     {
         return [
+            'department_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('departments', 'id')->where('scope_id', $this->route('scope')->id)],
+            'department_ids' => ['sometimes', 'array'],
+            'department_ids.*' => ['ulid', 'distinct', Rule::exists('departments', 'id')->where('scope_id', $this->route('scope')->id)],
             'title' => ['required', 'string', 'max:255'],
             'key' => ['required', 'string', 'min:2', 'max:10', 'regex:/^[A-Z][A-Z0-9]*$/', Rule::unique('projects', 'key')->where('scope_id', $this->route('scope')->id)],
             'description' => ['nullable', 'string'],
