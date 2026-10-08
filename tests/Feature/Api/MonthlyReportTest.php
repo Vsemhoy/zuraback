@@ -101,7 +101,8 @@ class MonthlyReportTest extends TestCase
             $this->assertNotFalse(simplexml_load_string($zip->getFromIndex($i)));
         }
         $zip->close();
-        $task->update(['title' => 'Changed', 'status' => 'todo']);
+        $task->update(['status' => 'todo']);
+        $task->update(['title' => 'Changed']);
         $this->getJson($this->base($scope).'/archives/'.$id.'/download')->assertOk()
             ->assertHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         $this->assertSame($hash, hash_file('sha256', $path));

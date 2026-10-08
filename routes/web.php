@@ -145,6 +145,7 @@ Route::prefix('api')->middleware(['spa.request', 'auth', 'active'])->group(funct
         Route::get('/tasks/{task}/comments', [TaskConversationController::class, 'comments'])->middleware(['scope.actor', 'scope.ability:task.view']);
         Route::post('/tasks/{task}/comments', [TaskConversationController::class, 'storeComment'])->middleware(['scope.actor', 'scope.ability:task.update']);
         Route::delete('/tasks/{task}/comments/{comment}', [TaskConversationController::class, 'destroyComment'])->middleware(['scope.actor', 'scope.ability:task.update']);
+        Route::patch('/tasks/{task}/comments/{comment}', [TaskConversationController::class, 'updateComment'])->middleware(['scope.actor', 'scope.ability:task.update']);
         Route::get('/tasks/{task}/activity', [TaskConversationController::class, 'activity'])->middleware(['scope.actor', 'scope.ability:task.view']);
         Route::get('/facts', [FactController::class, 'index']);
         Route::post('/facts', [FactController::class, 'store']);

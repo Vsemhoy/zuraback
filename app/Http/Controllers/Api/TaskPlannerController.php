@@ -76,6 +76,7 @@ class TaskPlannerController extends Controller
     {
         $data = $request->validate(['task_id' => ['required', 'ulid'], 'planned_on' => ['required', 'date_format:Y-m-d']]);
         $task = $this->accessibleTask($request, $scope, $data['task_id']);
+        $task->assertEditable();
         $origin = $task->due_at?->startOfDay() ?? today();
         abort_unless(CarbonImmutable::parse($data['planned_on'])->startOfDay()->greaterThan($origin), 422, 'A task tail must point to a later planning day.');
         $tail = TaskPlannerTail::query()->firstOrCreate([
@@ -92,6 +93,7 @@ class TaskPlannerController extends Controller
     {
         abort_unless($tail->scope_id === $scope->id, 404);
         $task = $this->accessibleTask($request, $scope, $tail->task_id);
+        $task->assertEditable();
         $data = $request->validate(['planned_on' => ['required', 'date_format:Y-m-d']]);
         $before = ['tail_id' => $tail->id, 'planned_on' => $tail->planned_on->format('Y-m-d')];
         $origin = $tail->task()->value('due_at');
@@ -112,6 +114,7 @@ class TaskPlannerController extends Controller
     {
         abort_unless($tail->scope_id === $scope->id, 404);
         $task = $this->accessibleTask($request, $scope, $tail->task_id);
+        $task->assertEditable();
         $before = ['tail_id' => $tail->id, 'planned_on' => $tail->planned_on->format('Y-m-d')];
         $tail->delete();
         $this->log($request, $scope, $task, 'task.planner_tail_deleted', $before, null);
@@ -193,6 +196,9 @@ class TaskPlannerController extends Controller
 
         DB::transaction(function () use ($request, $scope, $tasks, $data, $actor, $assignee, $relationTarget): void {
             foreach ($tasks as $task) {
+                if (! empty($data['checklist_item']) || $relationTarget) {
+                    $task->assertEditable();
+                }
                 $changes = collect($data)->only(['project_id', 'assignee_id', 'status', 'priority', 'description'])->all();
                 $before = $task->only(array_keys($changes));
                 if ($assignee) {

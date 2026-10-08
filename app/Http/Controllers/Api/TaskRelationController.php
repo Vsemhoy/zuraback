@@ -37,6 +37,7 @@ class TaskRelationController extends Controller
     public function store(StoreTaskRelationRequest $request, Scope $scope, Task $task): JsonResponse
     {
         $this->assertTask($scope, $task);
+        $task->assertEditable();
         $data = $request->validated();
         $other = $scope->tasks()->with('project')->where('task_key', strtoupper($data['task_key']))->firstOrFail();
         abort_if($other->id === $task->id, 422, 'A task cannot be related to itself.');
@@ -68,6 +69,7 @@ class TaskRelationController extends Controller
     public function destroy(Request $request, Scope $scope, Task $task, EntityLink $link): JsonResponse
     {
         $this->assertTask($scope, $task);
+        $task->assertEditable();
         abort_unless($link->scope_id === $scope->id && $link->source_type === 'task' && $link->target_type === 'task' && in_array($task->id, [$link->source_id, $link->target_id], true), 404);
         $snapshot = $link->only(['id', 'source_id', 'target_id', 'relation']);
         $link->delete();

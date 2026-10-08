@@ -118,6 +118,22 @@ class FilerApiTest extends TestCase
         return [$owner, $scope];
     }
 
+    public function test_closed_task_attachments_stay_readable_but_cannot_be_modified(): void
+    {
+        [$owner, $scope] = $this->prepare();
+        $task = Task::factory()->create(['scope_id' => $scope->id, 'created_by' => $owner->id]);
+        $id = $this->upload($scope, $owner, ['category' => 'task', 'subject_type' => 'task', 'subject_id' => $task->id])->assertCreated()->json('data.id');
+        $task->update(['status' => 'done']);
+        $url = "/api/scopes/{$scope->id}/files";
+        $this->getJson($url)->assertOk()->assertJsonPath('data.0.can_manage', false);
+        $this->getJson("{$url}/{$id}/download")->assertOk();
+        $this->withHeaders(['X-App-Request' => 'Zuratax'])->patchJson("{$url}/{$id}", ['description' => 'Changed'])->assertNotFound();
+        $this->deleteJson("{$url}/{$id}")->assertNotFound();
+        $this->upload($scope, $owner, ['category' => 'task', 'subject_type' => 'task', 'subject_id' => $task->id])->assertNotFound();
+        $this->assertDatabaseHas('filer_files', ['id' => $id, 'description' => null]);
+        $this->assertDatabaseCount('filer_files', 1);
+    }
+
     public function test_upload_download_and_physical_delete(): void
     {
         [$owner, $scope] = $this->prepare();

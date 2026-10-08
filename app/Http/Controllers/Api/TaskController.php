@@ -39,7 +39,7 @@ class TaskController extends Controller
     {
         $query = $this->access->constrainTasks($scope->tasks()->getQuery(), $this->context->actor($request), $scope);
 
-        return TaskResource::collection($query->with(['project:id,title,key,color', 'kpi:id,name,kind,points,minimum_completed_tasks', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type'])->withCount('comments')->orderBy('sort_order')->orderBy('created_at')->get());
+        return TaskResource::collection($query->with(['project:id,title,key,color', 'kpi:id,name,kind,points,minimum_completed_tasks', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type'])->withCommentSummary()->orderBy('sort_order')->orderBy('created_at')->get());
     }
 
     public function search(Request $request, Scope $scope): AnonymousResourceCollection
@@ -72,6 +72,7 @@ class TaskController extends Controller
         $this->assertAssignedUsersCanAccess($scope, $data, $data['project_id'] ?? null);
         if (! empty($data['parent_id'])) {
             $parent = $scope->tasks()->findOrFail($data['parent_id']);
+            $parent->assertEditable();
             abort_if($parent->parent_id !== null, 422, 'Only one level of true subtasks is supported.');
         }
 
@@ -149,6 +150,7 @@ class TaskController extends Controller
         if (array_key_exists('parent_id', $data) && $data['parent_id']) {
             abort_if($data['parent_id'] === $task->id, 422, 'A task cannot be its own parent.');
             $parent = $scope->tasks()->findOrFail($data['parent_id']);
+            $parent->assertEditable();
             abort_if($parent->parent_id !== null, 422, 'Only one level of true subtasks is supported.');
             abort_if($task->children()->exists(), 422, 'A task with subtasks cannot become a subtask.');
         }

@@ -60,15 +60,24 @@ class EntityLinkController extends Controller
             if ($entity instanceof Task && $entity->project_id === null) {
                 abort_unless($this->access->canAccessUnprojected($this->context->actor($request), $scope), 403, 'Unprojected tasks are outside the contractor access boundary.');
             }
+            if ($entity instanceof Task) {
+                $entity->assertEditable();
+            }
         }
         $link = $scope->entityLinks()->create([...$data, 'created_by' => $request->user()->id]);
 
         return new EntityLinkResource($link->load(['source', 'target']));
     }
 
-    public function destroy(Scope $scope, EntityLink $link): Response
+    public function destroy(Request $request, Scope $scope, EntityLink $link): Response
     {
         abort_unless($link->scope_id === $scope->id, 404);
+        foreach ([$link->source, $link->target] as $entity) {
+            if ($entity instanceof Task) {
+                abort_unless($this->access->canAccessTask($this->context->actor($request), $scope, $entity, 'task.update'), 404);
+                $entity->assertEditable();
+            }
+        }
         $link->delete();
 
         return response()->noContent();

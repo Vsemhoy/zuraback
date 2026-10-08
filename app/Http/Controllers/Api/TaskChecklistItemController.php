@@ -122,6 +122,9 @@ class TaskChecklistItemController extends Controller
     private function assertTask(Request $request, Scope $scope, Task $task, string $ability = 'task.view'): void
     {
         abort_unless($this->access->canAccessTask($this->context->actor($request), $scope, $task, $ability), 404);
+        if ($ability !== 'task.view') {
+            $task->assertEditable();
+        }
     }
 
     private function assertItem(Request $request, Scope $scope, Task $task, TaskChecklistItem $item, string $ability = 'task.view'): void

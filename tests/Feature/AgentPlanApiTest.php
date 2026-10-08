@@ -120,7 +120,7 @@ class AgentPlanApiTest extends TestCase
     {
         $this->agent();
         $this->get('/api/agent/spec', ['Accept' => 'text/markdown'])->assertOk()
-            ->assertSee('Specification version: 2026-09-29.1', false)
+            ->assertSee('Specification version: 2026-10-08.1', false)
             ->assertSee('/api/agent/scopes/{scope}/plans', false)
             ->assertSee('/api/agent/scopes/{scope}/files/{file}/image', false)
             ->assertSee('photo=1', false)

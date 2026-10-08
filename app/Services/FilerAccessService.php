@@ -31,7 +31,9 @@ class FilerAccessService
         }
         $ability = $write ? 'task.update' : 'task.view';
         if ($subject instanceof Task) {
-            return $this->access->canAccessTask($actor, $scope, $subject, $ability);
+            $allowed = $this->access->canAccessTask($actor, $scope, $subject, $ability);
+
+            return $allowed && (! $write || ! in_array($subject->status, ['done', 'cancelled'], true));
         }
         if ($subject instanceof Project) {
             return $this->access->canAccessProject($actor, $scope, $subject, $ability);

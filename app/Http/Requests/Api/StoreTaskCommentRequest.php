@@ -9,6 +9,7 @@ class StoreTaskCommentRequest extends WorkspaceRequest
         return [
             'content' => ['required', 'string', 'max:20000'],
             'parent_id' => ['nullable', 'ulid'],
+            'kind' => ['sometimes', 'in:comment,question,answer'],
         ];
     }
 }

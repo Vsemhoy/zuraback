@@ -9,11 +9,43 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Validation\ValidationException;
 
 #[Fillable(['scope_id', 'project_id', 'parent_id', 'number', 'task_key', 'created_by', 'assignee_id', 'customer_id', 'is_agent_delegatable', 'delegated_agent_id', 'approved_by', 'kpi_id', 'title', 'description', 'result', 'agent_notes', 'status', 'priority', 'due_at', 'completed_at', 'approved_at', 'tracked_seconds', 'is_pinned', 'sort_order', 'meta'])]
 class Task extends DomainModel
 {
     use HasEntityLinks, SoftDeletes;
+
+    protected static function booted(): void
+    {
+        static::updating(function (Task $task): void {
+            $status = $task->getOriginal('status');
+            if (! in_array($status, ['done', 'cancelled'], true)) {
+                return;
+            }
+            // Board ordering does not change the task's content or accounting.
+            $allowed = $status === 'done' ? ['project_id', 'kpi_id', 'sort_order', 'updated_at'] : ['sort_order', 'updated_at'];
+            if ($task->isDirty('status')) {
+                $allowed = [...$allowed, 'status', 'completed_at', 'sort_order'];
+            }
+            $blocked = array_diff(array_keys($task->getDirty()), $allowed);
+            if ($blocked !== []) {
+                throw ValidationException::withMessages(array_fill_keys($blocked, 'Сначала верните закрытую задачу в работу.'));
+            }
+        });
+    }
+
+    public function assertEditable(): void
+    {
+        if (in_array($this->status, ['done', 'cancelled'], true)) {
+            throw ValidationException::withMessages(['task' => 'Сначала верните закрытую задачу в работу.']);
+        }
+    }
+
+    public function scopeWithCommentSummary(Builder $query): Builder
+    {
+        return $query->withCount(['comments', 'comments as unanswered_questions_count' => fn (Builder $comments) => $comments->where('kind', 'question')->where('is_answered', false)]);
+    }
 
     public function scopeIncludedInReports(Builder $query): Builder
     {
