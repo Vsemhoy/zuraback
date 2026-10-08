@@ -23,11 +23,15 @@ class PlanItemTest extends TestCase
     public function test_candidates_and_selected_tasks_include_existing_plans_without_blocking_reuse(): void
     {
         [$user, $scope, $base] = $this->workspace();
-        $task = Task::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id, 'project_id' => null, 'assignee_id' => $user->id, 'status' => 'done']);
+        $task = Task::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id, 'project_id' => null, 'assignee_id' => $user->id, 'status' => 'done', 'due_at' => '2026-11-10']);
         $first = PlanItem::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id, 'project_id' => null, 'title' => 'First plan', 'month' => '2026-10']);
         $first->tasks()->attach($task);
         $this->getJson($base.'/plans/candidates')->assertOk()->assertJsonCount(1, 'data.0.linked_plans')
             ->assertJsonPath('data.0.assignee.name', $user->name)->assertJsonPath('data.0.linked_plans.0.title', 'First plan')->assertJsonPath('data.0.linked_plans.0.month', '2026-10');
+        $this->postJson($base.'/plans', ['title' => 'Second plan', 'month' => '2026-11', 'task_ids' => [$task->id], 'task_dates' => [$task->id => '2026-11-11']])
+            ->assertUnprocessable()->assertJsonValidationErrors('due_at');
+        $this->assertDatabaseCount('plan_items', 1);
+        $this->assertSame('2026-11-10', $task->fresh()->due_at->toDateString());
         $second = $this->postJson($base.'/plans', ['title' => 'Second plan', 'month' => '2026-11', 'task_ids' => [$task->id], 'task_dates' => [$task->id => '2026-11-10']])
             ->assertOk()->assertJsonCount(2, 'data.tasks.0.linked_plans')->json('data.id');
         $this->getJson($base.'/plans/'.$first->id)->assertOk()->assertJsonCount(2, 'data.tasks.0.linked_plans');

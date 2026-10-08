@@ -187,7 +187,7 @@ class AgentSpecificationController extends Controller
             '- Comment POST accepts `content`, optional `parent_id`, and `kind`: `comment` (default), `question`, or `answer`. Questions are top-level; an answer must reply directly to a question. Replies may have only one additional nesting level.',
             '- An answer marks its parent question `is_answered=true`. Removing the last answer reopens the question. PATCH accepts `{"is_answered":true}` or `false` only for questions, by the comment author, task creator, or scope owner. Deleting a root comment also soft-deletes its replies.',
             '- Task lists expose `comments_count` and `unanswered_questions_count`. Discussion mutations require `task.update` in both token abilities and membership capabilities.',
-            '- Completed (`done`) tasks freeze their content, assignment, dates, checklist, attachments, tails and links. Only project/KPI corrections, board ordering, discussion and status changes remain available. Deleted (`cancelled`) tasks are read-only except board ordering, restoration and authorized permanent deletion.',
+            '- Completed (`done`) tasks freeze their content, assignment, dates, checklist, attachments, tails and links. Only project/department/KPI corrections, board ordering, discussion and status changes remain available. Deleted (`cancelled`) tasks are read-only except board ordering, restoration and authorized permanent deletion.',
             '- To edit frozen fields, first restore the task to an open status in a separate request, only when explicitly authorized by the user. Combining reopening and content edits is rejected with 422. Never reopen a task just to bypass the freeze.',
             '',
             '## Task documents',

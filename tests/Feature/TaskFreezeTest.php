@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Department;
 use App\Models\Scope;
 use App\Models\Task;
 use App\Models\User;
@@ -75,6 +76,19 @@ class TaskFreezeTest extends TestCase
         $this->patchJson("/api/scopes/{$scope->id}/planner/tasks/bulk", ['task_ids' => [$open->id, $task->id], 'description' => 'Overwrite'])->assertUnprocessable();
         $this->assertDatabaseHas('tasks', ['id' => $open->id, 'description' => 'Open content']);
         $this->assertDatabaseHas('tasks', ['id' => $task->id, 'description' => 'Keep description']);
+    }
+
+    public function test_department_corrections_are_allowed_for_done_tasks_but_not_deleted_tasks(): void
+    {
+        [, $scope, $task, $url] = $this->workspace('done');
+        $department = Department::factory()->create(['scope_id' => $scope->id]);
+
+        $this->patchJson($url, ['department_id' => $department->id])->assertOk()->assertJsonPath('data.department_id', $department->id);
+        $this->assertDatabaseHas('tasks', ['id' => $task->id, 'department_id' => $department->id, 'description' => 'Keep description']);
+
+        $this->deleteJson($url)->assertNoContent();
+        $this->patchJson($url, ['department_id' => null])->assertUnprocessable()->assertJsonValidationErrors('department_id');
+        $this->assertDatabaseHas('tasks', ['id' => $task->id, 'department_id' => $department->id, 'status' => 'cancelled']);
     }
 
     public function test_done_task_cannot_receive_checklist_changes_or_new_subtasks(): void
