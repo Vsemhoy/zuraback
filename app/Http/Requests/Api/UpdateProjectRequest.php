@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Api;
 
 use Illuminate\Contracts\Validation\ValidationRule;
+use Illuminate\Validation\Rule;
 
 class UpdateProjectRequest extends WorkspaceRequest
 {
@@ -10,6 +11,9 @@ class UpdateProjectRequest extends WorkspaceRequest
     public function rules(): array
     {
         return [
+            'department_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('departments', 'id')->where('scope_id', $this->route('scope')->id)],
+            'department_ids' => ['sometimes', 'array'],
+            'department_ids.*' => ['ulid', 'distinct', Rule::exists('departments', 'id')->where('scope_id', $this->route('scope')->id)],
             'title' => ['sometimes', 'string', 'max:255'],
             'description' => ['sometimes', 'nullable', 'string'],
             'result' => ['sometimes', 'nullable', 'string'],

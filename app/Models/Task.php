@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Validation\ValidationException;
 
-#[Fillable(['scope_id', 'project_id', 'parent_id', 'number', 'task_key', 'created_by', 'assignee_id', 'customer_id', 'is_agent_delegatable', 'delegated_agent_id', 'approved_by', 'kpi_id', 'title', 'description', 'result', 'agent_notes', 'status', 'priority', 'due_at', 'completed_at', 'approved_at', 'tracked_seconds', 'is_pinned', 'sort_order', 'meta'])]
+#[Fillable(['department_id', 'scope_id', 'project_id', 'parent_id', 'number', 'task_key', 'created_by', 'assignee_id', 'customer_id', 'is_agent_delegatable', 'delegated_agent_id', 'approved_by', 'kpi_id', 'title', 'description', 'result', 'agent_notes', 'status', 'priority', 'due_at', 'completed_at', 'approved_at', 'tracked_seconds', 'is_pinned', 'sort_order', 'meta'])]
 class Task extends DomainModel
 {
     use HasEntityLinks, SoftDeletes;
@@ -24,7 +24,7 @@ class Task extends DomainModel
                 return;
             }
             // Board ordering does not change the task's content or accounting.
-            $allowed = $status === 'done' ? ['project_id', 'kpi_id', 'sort_order', 'updated_at'] : ['sort_order', 'updated_at'];
+            $allowed = $status === 'done' ? ['project_id', 'department_id', 'kpi_id', 'sort_order', 'updated_at'] : ['sort_order', 'updated_at'];
             if ($task->isDirty('status')) {
                 $allowed = [...$allowed, 'status', 'completed_at', 'sort_order'];
             }
@@ -45,6 +45,11 @@ class Task extends DomainModel
     public function scopeWithCommentSummary(Builder $query): Builder
     {
         return $query->withCount(['comments', 'comments as unanswered_questions_count' => fn (Builder $comments) => $comments->where('kind', 'question')->where('is_answered', false)]);
+    }
+
+    public function department(): BelongsTo
+    {
+        return $this->belongsTo(Department::class);
     }
 
     public function scopeIncludedInReports(Builder $query): Builder

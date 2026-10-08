@@ -31,7 +31,7 @@ class ProjectController extends Controller
         $query = $this->access->constrainProjects($scope->projects()->getQuery(), $this->context->actor($request), $scope);
 
         return ProjectResource::collection(
-            $query->with('creator:id,name,username')->withCount(['tasks', 'books'])->orderBy('sort_order')->orderBy('title')->get()
+            $query->with(['creator:id,name,username', 'department:id,name', 'departments:id,name'])->withCount(['tasks', 'books'])->orderBy('sort_order')->orderBy('title')->get()
         );
     }
 
@@ -45,11 +45,17 @@ class ProjectController extends Controller
             abort_unless($this->access->canAccessUnprojected($actor, $scope), 403, 'Creating projects requires all-project access in the scope.');
         }
         $data = $request->validated();
+        $departmentIds = $data['department_ids'] ?? null;
+        unset($data['department_ids']);
         $data['visibility'] ??= 'private';
         $data['sort_order'] ??= ((int) $scope->projects()->max('sort_order')) + 1;
         $project = $scope->projects()->create([...$data, 'created_by' => $actor->id]);
 
-        return new ProjectResource($project->load('creator:id,name,username')->loadCount(['tasks', 'books']));
+        if ($departmentIds !== null) {
+            $project->departments()->sync($departmentIds);
+        }
+
+        return new ProjectResource($project->load(['creator:id,name,username', 'department:id,name', 'departments:id,name'])->loadCount(['tasks', 'books']));
     }
 
     /**
@@ -59,7 +65,7 @@ class ProjectController extends Controller
     {
         abort_unless($this->access->canAccessProject($this->context->actor($request), $scope, $project), 404);
 
-        return new ProjectResource($project->load(['books:id,scope_id,project_id,title', 'creator:id,name,username'])->loadCount(['tasks', 'books']));
+        return new ProjectResource($project->load(['department:id,name', 'departments:id,name', 'books:id,scope_id,project_id,title', 'creator:id,name,username'])->loadCount(['tasks', 'books']));
     }
 
     public function update(UpdateProjectRequest $request, Scope $scope, Project $project): ProjectResource
@@ -67,6 +73,8 @@ class ProjectController extends Controller
         $actor = $this->context->actor($request);
         abort_unless($this->access->canAccessProject($actor, $scope, $project, 'task.update'), 404);
         $data = $request->validated();
+        $departmentIds = $data['department_ids'] ?? null;
+        unset($data['department_ids']);
         if (array_key_exists('visibility', $data) && $data['visibility'] !== $project->visibility) {
             abort_unless($project->created_by === $actor->id || $scope->owner_id === $actor->id, 403, 'Only the project creator or scope owner can change project privacy.');
         }
@@ -77,8 +85,11 @@ class ProjectController extends Controller
                 'context' => $this->context->auditMetadata($request)]);
         }
         $project->update($data);
+        if ($departmentIds !== null) {
+            $project->departments()->sync($departmentIds);
+        }
 
-        return new ProjectResource($project->fresh()->load(['books:id,scope_id,project_id,title', 'creator:id,name,username'])->loadCount(['tasks', 'books']));
+        return new ProjectResource($project->fresh()->load(['department:id,name', 'departments:id,name', 'books:id,scope_id,project_id,title', 'creator:id,name,username'])->loadCount(['tasks', 'books']));
     }
 
     public function reorder(Request $request, Scope $scope): AnonymousResourceCollection

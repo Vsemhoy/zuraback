@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Api;
 
 use Illuminate\Contracts\Validation\ValidationRule;
+use Illuminate\Validation\Rule;
 
 class UpdateTaskRequest extends WorkspaceRequest
 {
@@ -10,6 +11,7 @@ class UpdateTaskRequest extends WorkspaceRequest
     public function rules(): array
     {
         return [
+            'department_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('departments', 'id')->where('scope_id', $this->route('scope')->id)],
             'project_id' => ['sometimes', 'nullable', 'ulid'],
             'parent_id' => ['sometimes', 'nullable', 'ulid'],
             'assignee_id' => ['sometimes', 'nullable', 'ulid'],

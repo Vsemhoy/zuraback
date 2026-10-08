@@ -76,6 +76,10 @@ class ContractorAccessService
             return true;
         }
 
+        if ($membership->department_id && ($project->department_id === $membership->department_id || $project->departments()->whereKey($membership->department_id)->exists())) {
+            return true;
+        }
+
         $projectMembership = $project->members()
             ->where('user_id', $user->id)
             ->where('is_active', true)
@@ -116,6 +120,11 @@ class ContractorAccessService
     {
         if ($task->scope_id !== $scope->id || ! $this->allows($user, $scope, $ability)) {
             return false;
+        }
+
+        if ($task->department_id && in_array($ability, ['task.view', 'task.update', 'task.assign'], true)
+            && ($task->created_by === $user->id || $task->assignee_id === $user->id || $this->membership($user, $scope)?->department_id === $task->department_id)) {
+            return true;
         }
 
         if ($task->project_id === null) {
@@ -167,6 +176,7 @@ class ContractorAccessService
         if ($membership->project_access_mode === 'restricted') {
             $query->where(fn (Builder $projects): Builder => $projects
                 ->where('created_by', $user->id)
+                ->when($membership->department_id, fn (Builder $departments, string $id) => $departments->orWhere('department_id', $id)->orWhereHas('departments', fn (Builder $items) => $items->whereKey($id)))
                 ->orWhereHas('members', fn (Builder $members): Builder => $members
                     ->where('user_id', $user->id)
                     ->where('is_active', true)));
@@ -183,26 +193,24 @@ class ContractorAccessService
         if ($scope->owner_id === $user->id) {
             return $query;
         }
-
         $membership = $this->membership($user, $scope);
-
-        if ($membership === null || $membership->project_access_mode === 'none') {
+        if (! $membership || ! $this->allows($user, $scope, 'task.view')) {
             return $query->whereRaw('1 = 0');
         }
+        $projectIds = $this->constrainProjects($scope->projects()->getQuery(), $user, $scope)->select('projects.id');
 
-        if ($membership->project_access_mode === 'restricted') {
-            $query->whereHas('project', fn (Builder $projects): Builder => $projects
-                ->where('created_by', $user->id)
-                ->orWhereHas('members', fn (Builder $members): Builder => $members
-                    ->where('user_id', $user->id)
-                    ->where('is_active', true)));
-        }
-
-        return $query->where(fn (Builder $tasks): Builder => $tasks
-            ->whereNull('project_id')
-            ->orWhereHas('project', fn (Builder $projects): Builder => $projects
-                ->where('visibility', '!=', 'private')
-                ->orWhere('created_by', $user->id)));
+        return $query->where(function (Builder $tasks) use ($projectIds, $membership, $user): void {
+            $tasks->whereIn('project_id', $projectIds);
+            if ($membership->project_access_mode === 'all') {
+                $tasks->orWhereNull('project_id');
+            }
+            $tasks->orWhere(fn (Builder $routed) => $routed->whereNotNull('department_id')->where(function (Builder $people) use ($membership, $user): void {
+                $people->where('created_by', $user->id)->orWhere('assignee_id', $user->id);
+                if ($membership->department_id) {
+                    $people->orWhere('department_id', $membership->department_id);
+                }
+            }));
+        });
     }
 
     public function canAccessBook(User $user, Scope $scope, Book $book): bool
