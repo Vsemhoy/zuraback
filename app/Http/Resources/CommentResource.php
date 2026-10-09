@@ -12,7 +12,11 @@ class CommentResource extends JsonResource
         return [
             'id' => $this->id, 'parent_id' => $this->parent_id, 'content' => $this->content,
             'kind' => $this->kind, 'is_answered' => $this->is_answered,
-            'created_by' => $this->whenLoaded('creator'), 'created_at' => $this->created_at, 'updated_at' => $this->updated_at,
+            'created_by' => $this->whenLoaded('creator', fn ($creator): array => [
+                'id' => $creator->id,
+                'name' => $creator->name,
+                'avatar' => $creator->profile['avatar'] ?? null,
+            ]), 'created_at' => $this->created_at, 'updated_at' => $this->updated_at,
         ];
     }
 }

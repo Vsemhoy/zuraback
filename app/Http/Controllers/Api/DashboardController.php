@@ -138,7 +138,7 @@ class DashboardController extends Controller
         return Comment::query()
             ->where('scope_id', $scope->id)
             ->whereIn('commentable_type', ['book', 'book_page', 'book_block_group'])
-            ->with(['creator:id,name,type', 'commentable'])
+            ->with(['creator:id,name,type,profile', 'commentable'])
             ->latest()
             ->limit(30)
             ->get()
@@ -170,7 +170,12 @@ class DashboardController extends Controller
                 return [
                     'id' => $comment->id,
                     'content' => $comment->content,
-                    'creator' => $comment->creator,
+                    'creator' => $comment->creator ? [
+                        'id' => $comment->creator->id,
+                        'name' => $comment->creator->name,
+                        'type' => $comment->creator->type,
+                        'avatar' => $comment->creator->profile['avatar'] ?? null,
+                    ] : null,
                     'book' => ['id' => $book->id, 'title' => $book->title],
                     'page' => $page ? ['id' => $page->id, 'title' => $page->title] : null,
                     'href' => $href,

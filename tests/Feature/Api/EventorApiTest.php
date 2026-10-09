@@ -2,8 +2,8 @@
 
 namespace Tests\Feature\Api;
 
-use App\Models\Scope;
 use App\Models\Project;
+use App\Models\Scope;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -11,6 +11,23 @@ use Tests\TestCase;
 class EventorApiTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_event_comment_responses_include_the_avatar_without_private_profile_data(): void
+    {
+        $user = User::factory()->create(['profile' => ['avatar' => ['preset' => 'Anima_00024_.png'], 'private_note' => 'Hidden']]);
+        $scope = Scope::factory()->create(['owner_id' => $user->id]);
+        $event = $scope->events()->create(['created_by' => $user->id, 'title' => 'Meeting', 'comments_enabled' => true]);
+        $url = "/api/scopes/{$scope->id}/events/{$event->id}/comments";
+        $this->actingAs($user)->withHeaders(self::HEADERS);
+
+        $id = $this->postJson($url, ['content' => 'Photo check'])->assertCreated()
+            ->assertJsonPath('data.created_by.avatar.preset', 'Anima_00024_.png')
+            ->assertJsonMissingPath('data.created_by.profile')->json('data.id');
+        $this->assertDatabaseHas('comments', ['id' => $id, 'created_by' => $user->id, 'content' => 'Photo check']);
+        $this->getJson($url)->assertOk()->assertJsonPath('data.0.created_by.avatar.preset', 'Anima_00024_.png')
+            ->assertJsonMissingPath('data.0.created_by.profile');
+    }
+
     private const HEADERS = ['Accept' => 'application/json', 'Content-Type' => 'application/json', 'X-App-Request' => 'Zuratax'];
 
     public function test_eventor_references_are_scoped_and_event_can_be_updated(): void

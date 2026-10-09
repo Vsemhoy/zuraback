@@ -12,6 +12,27 @@ class BookerApiTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_page_and_recent_comments_include_only_the_public_author_avatar(): void
+    {
+        $user = User::factory()->create(['profile' => ['avatar' => ['preset' => 'Anima_00024_.png'], 'private_note' => 'Hidden']]);
+        $scope = Scope::factory()->create(['owner_id' => $user->id]);
+        $book = $scope->books()->create(['created_by' => $user->id, 'title' => 'Book', 'comments_enabled' => true]);
+        $page = $book->pages()->create(['created_by' => $user->id, 'title' => 'Page']);
+        $url = "/api/scopes/{$scope->id}/books/{$book->id}/pages/{$page->id}/comments";
+        $this->actingAs($user)->withHeaders(self::HEADERS);
+
+        $id = $this->postJson($url, ['content' => 'Photo check'])->assertCreated()
+            ->assertJsonPath('data.created_by.avatar.preset', 'Anima_00024_.png')
+            ->assertJsonMissingPath('data.created_by.profile')->json('data.id');
+        $this->assertDatabaseHas('comments', ['id' => $id, 'created_by' => $user->id, 'content' => 'Photo check']);
+        $this->getJson($url)->assertOk()->assertJsonPath('data.0.created_by.avatar.preset', 'Anima_00024_.png');
+        $this->getJson("/api/scopes/{$scope->id}/book-comments/recent")->assertOk()
+            ->assertJsonPath('data.0.created_by.avatar.preset', 'Anima_00024_.png')->assertJsonMissingPath('data.0.created_by.profile');
+        $this->getJson("/api/scopes/{$scope->id}/dashboard")->assertOk()
+            ->assertJsonPath('data.book_comments.0.creator.avatar.preset', 'Anima_00024_.png')
+            ->assertJsonMissingPath('data.book_comments.0.creator.profile');
+    }
+
     public function test_photo_block_preserves_its_file_reference_in_a_new_version(): void
     {
         $user = User::factory()->create();

@@ -6,6 +6,7 @@ use App\Models\Scope;
 use App\Models\Task;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use PHPUnit\Framework\Attributes\TestWith;
 use Tests\TestCase;
 
 class TaskConversationTypesTest extends TestCase
@@ -39,6 +40,37 @@ class TaskConversationTypesTest extends TestCase
         $this->assertSoftDeleted('comments', ['id' => $reply]);
         $this->assertDatabaseHas('comments', ['id' => $question, 'is_answered' => false]);
         $this->getJson("/api/scopes/{$scope->id}/tasks")->assertOk()->assertJsonPath('data.0.unanswered_questions_count', 1);
+    }
+
+    #[TestWith([null])]
+    #[TestWith([['preset' => 'Anima_00024_.png', 'crop' => ['x' => 25, 'y' => 75, 'zoom' => 2]]])]
+    #[TestWith([['file_id' => '01m1e2jr7p62bd355k3a9tqqbs', 'scope_id' => '01m1e2jr7p62bd355k3a9tqqbt']])]
+    public function test_comment_responses_include_author_avatar_without_exposing_the_profile(?array $avatar): void
+    {
+        [$owner, $scope, $task, $url] = $this->workspace();
+        $owner->update(['profile' => ['avatar' => $avatar, 'private_note' => 'Do not expose']]);
+
+        $response = $this->postJson($url, ['kind' => 'question', 'content' => 'Avatar check'])->assertCreated()
+            ->assertJsonPath('data.created_by.id', $owner->id)
+            ->assertJsonPath('data.created_by.avatar', $avatar)
+            ->assertJsonMissingPath('data.created_by.profile');
+        $id = $response->json('data.id');
+        $this->assertDatabaseHas('comments', ['id' => $id, 'created_by' => $owner->id, 'content' => 'Avatar check']);
+        $this->getJson($url)->assertOk()->assertJsonPath('data.0.created_by.avatar', $avatar)
+            ->assertJsonMissingPath('data.0.created_by.profile');
+        $this->patchJson("{$url}/{$id}", ['is_answered' => true])->assertOk()
+            ->assertJsonPath('data.created_by.avatar', $avatar)->assertJsonMissingPath('data.created_by.profile');
+    }
+
+    public function test_comments_keep_the_avatar_of_a_soft_deleted_author(): void
+    {
+        [$owner, $scope, $task, $url] = $this->workspace();
+        $author = User::factory()->create(['profile' => ['avatar' => ['preset' => 'Anima_00024_.png']]]);
+        $task->comments()->create(['scope_id' => $scope->id, 'created_by' => $author->id, 'content' => 'Historical comment']);
+        $author->delete();
+
+        $this->getJson($url)->assertOk()->assertJsonPath('data.0.created_by.id', $author->id)
+            ->assertJsonPath('data.0.created_by.avatar.preset', 'Anima_00024_.png');
     }
 
     public function test_question_can_be_manually_marked_answered_and_reopened(): void

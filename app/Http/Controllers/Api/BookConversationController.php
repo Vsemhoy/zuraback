@@ -28,7 +28,7 @@ class BookConversationController extends Controller
             ->where('scope_id', $scope->id)
             ->where('commentable_type', 'book_page')
             ->whereHasMorph('commentable', [BookPage::class], fn (Builder $pages) => $pages->whereIn('book_id', $bookIds))
-            ->with(['creator:id,name', 'commentable.book:id,title'])
+            ->with(['creator:id,name,profile', 'commentable.book:id,title'])
             ->latest('created_at')
             ->latest('id')
             ->limit(15)
@@ -41,7 +41,7 @@ class BookConversationController extends Controller
     {
         $this->assertPage($request, $scope, $book, $bookPage);
 
-        return BookCommentResource::collection($bookPage->comments()->with(['creator:id,name', 'commentable.book:id,title'])->oldest()->get());
+        return BookCommentResource::collection($bookPage->comments()->with(['creator:id,name,profile', 'commentable.book:id,title'])->oldest()->get());
     }
 
     public function storeComment(StoreTaskCommentRequest $request, Scope $scope, Book $book, BookPage $bookPage): BookCommentResource
@@ -54,7 +54,7 @@ class BookConversationController extends Controller
         }
         $comment = $bookPage->comments()->create([...$data, 'scope_id' => $scope->id, 'created_by' => $this->context->actor($request)->id]);
 
-        return new BookCommentResource($comment->load(['creator:id,name', 'commentable.book:id,title']));
+        return new BookCommentResource($comment->load(['creator:id,name,profile', 'commentable.book:id,title']));
     }
 
     public function destroy(Request $request, Scope $scope, Book $book, BookPage $bookPage, Comment $comment): Response

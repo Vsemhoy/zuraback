@@ -21,7 +21,11 @@ class BookCommentResource extends JsonResource
             'id' => $this->id,
             'parent_id' => $this->parent_id,
             'content' => $this->content,
-            'created_by' => $this->whenLoaded('creator'),
+            'created_by' => $this->whenLoaded('creator', fn ($creator): array => [
+                'id' => $creator->id,
+                'name' => $creator->name,
+                'avatar' => $creator->profile['avatar'] ?? null,
+            ]),
             'page' => $page instanceof BookPage ? [
                 'id' => $page->id,
                 'title' => $page->title,
