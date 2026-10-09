@@ -39,7 +39,7 @@ class TaskController extends Controller
     {
         $query = $this->access->constrainTasks($scope->tasks()->getQuery(), $this->context->actor($request), $scope);
 
-        return TaskResource::collection($query->with(['department:id,name', 'creator:id,name', 'project:id,title,key,color', 'kpi:id,name,kind,points,minimum_completed_tasks', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type'])->withCommentSummary()->orderBy('sort_order')->orderBy('created_at')->get());
+        return TaskResource::collection($query->with(['department:id,name,color', 'creator:id,name', 'project:id,title,key,color', 'kpi:id,name,kind,points,minimum_completed_tasks', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type'])->withCommentSummary()->orderBy('sort_order')->orderBy('created_at')->get());
     }
 
     public function search(Request $request, Scope $scope): AnonymousResourceCollection
@@ -50,7 +50,7 @@ class TaskController extends Controller
         $tasks = $this->access->constrainTasks($scope->tasks()->getQuery(), $this->context->actor($request), $scope);
 
         return TaskResource::collection($tasks
-            ->with(['department:id,name', 'creator:id,name', 'project:id,title,key,color', 'kpi:id,name,kind,points,minimum_completed_tasks', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type'])
+            ->with(['department:id,name,color', 'creator:id,name', 'project:id,title,key,color', 'kpi:id,name,kind,points,minimum_completed_tasks', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type'])
             ->where(fn ($builder) => $builder->where('task_key', 'like', strtoupper($query).'%')->orWhere('title', 'like', '%'.$query.'%'))
             ->limit(20)->get());
     }
@@ -99,7 +99,7 @@ class TaskController extends Controller
             'user_agent' => $request->userAgent(),
         ]);
 
-        return new TaskResource($task->load(['department:id,name', 'creator:id,name', 'project:id,title,key,color', 'kpi:id,name,kind,points,minimum_completed_tasks', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type']));
+        return new TaskResource($task->load(['department:id,name,color', 'creator:id,name', 'project:id,title,key,color', 'kpi:id,name,kind,points,minimum_completed_tasks', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type']));
     }
 
     /**
@@ -109,7 +109,7 @@ class TaskController extends Controller
     {
         abort_unless($this->access->canAccessTask($this->context->actor($request), $scope, $task), 404);
 
-        return new TaskResource($task->load(['department:id,name', 'creator:id,name', 'project:id,title,key,color', 'kpi:id,name,kind,points,minimum_completed_tasks', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type', 'checklistItems.assignee:id,name', 'checklistItems.completedBy:id,name', 'blockers.responsibleUser:id,name', 'blockers.blockedBy:id,name', 'blockers.resolvedBy:id,name', 'children' => fn ($children) => $this->access->constrainTasks($children->getQuery(), $this->context->actor($request), $scope)->select(['id', 'scope_id', 'project_id', 'parent_id', 'task_key', 'title', 'status', 'priority', 'due_at', 'assignee_id']), 'plannerTails' => fn ($query) => $query->orderBy('planned_on')]));
+        return new TaskResource($task->load(['department:id,name,color', 'creator:id,name', 'project:id,title,key,color', 'kpi:id,name,kind,points,minimum_completed_tasks', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type', 'checklistItems.assignee:id,name', 'checklistItems.completedBy:id,name', 'blockers.responsibleUser:id,name', 'blockers.blockedBy:id,name', 'blockers.resolvedBy:id,name', 'children' => fn ($children) => $this->access->constrainTasks($children->getQuery(), $this->context->actor($request), $scope)->select(['id', 'scope_id', 'project_id', 'parent_id', 'task_key', 'title', 'status', 'priority', 'due_at', 'assignee_id']), 'plannerTails' => fn ($query) => $query->orderBy('planned_on')]));
     }
 
     public function update(UpdateTaskRequest $request, Scope $scope, Task $task): TaskResource
@@ -182,7 +182,7 @@ class TaskController extends Controller
             'user_agent' => $request->userAgent(),
         ]);
 
-        return new TaskResource($task->fresh()->load(['department:id,name', 'creator:id,name', 'project:id,title,key,color', 'kpi:id,name,kind,points,minimum_completed_tasks', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type', 'checklistItems.assignee:id,name', 'checklistItems.completedBy:id,name', 'blockers.responsibleUser:id,name', 'blockers.blockedBy:id,name', 'blockers.resolvedBy:id,name', 'children' => fn ($children) => $this->access->constrainTasks($children->getQuery(), $this->context->actor($request), $scope)->select(['id', 'scope_id', 'project_id', 'parent_id', 'task_key', 'title', 'status', 'priority', 'due_at', 'assignee_id']), 'plannerTails' => fn ($query) => $query->orderBy('planned_on')]));
+        return new TaskResource($task->fresh()->load(['department:id,name,color', 'creator:id,name', 'project:id,title,key,color', 'kpi:id,name,kind,points,minimum_completed_tasks', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type', 'checklistItems.assignee:id,name', 'checklistItems.completedBy:id,name', 'blockers.responsibleUser:id,name', 'blockers.blockedBy:id,name', 'blockers.resolvedBy:id,name', 'children' => fn ($children) => $this->access->constrainTasks($children->getQuery(), $this->context->actor($request), $scope)->select(['id', 'scope_id', 'project_id', 'parent_id', 'task_key', 'title', 'status', 'priority', 'due_at', 'assignee_id']), 'plannerTails' => fn ($query) => $query->orderBy('planned_on')]));
     }
 
     public function move(MoveTaskRequest $request, Scope $scope, Task $task): TaskResource
@@ -234,7 +234,7 @@ class TaskController extends Controller
             ]);
         });
 
-        return new TaskResource($task->fresh()->load(['department:id,name', 'creator:id,name', 'project:id,title,key,color', 'kpi:id,name,kind,points,minimum_completed_tasks', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type']));
+        return new TaskResource($task->fresh()->load(['department:id,name,color', 'creator:id,name', 'project:id,title,key,color', 'kpi:id,name,kind,points,minimum_completed_tasks', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type']));
     }
 
     public function detach(Request $request, Scope $scope, Task $task): TaskResource
@@ -260,7 +260,7 @@ class TaskController extends Controller
             ]);
         });
 
-        return new TaskResource($task->fresh()->load(['department:id,name', 'creator:id,name', 'project:id,title,key,color', 'kpi:id,name,kind,points,minimum_completed_tasks', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type']));
+        return new TaskResource($task->fresh()->load(['department:id,name,color', 'creator:id,name', 'project:id,title,key,color', 'kpi:id,name,kind,points,minimum_completed_tasks', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type']));
     }
 
     public function destroy(Request $request, Scope $scope, Task $task): Response
