@@ -16,6 +16,43 @@ class DepartmentWorkflowTest extends TestCase
 
     private const HEADERS = ['Accept' => 'application/json', 'Content-Type' => 'application/json', 'X-App-Request' => 'Zuratax'];
 
+    public function test_department_colors_are_limited_to_the_pastel_palette(): void
+    {
+        $owner = User::factory()->create();
+        $scope = Scope::factory()->create(['owner_id' => $owner->id]);
+        $this->actingAs($owner)->withHeaders(self::HEADERS);
+        $url = "/api/scopes/{$scope->id}/departments";
+        $id = $this->postJson($url, ['name' => 'Design', 'color' => '#e5dcfa'])->assertSuccessful()->assertJsonPath('data.color', '#e5dcfa')->json('data.id');
+        $this->putJson("{$url}/{$id}", ['name' => 'Design', 'color' => '#c9f1d5'])->assertOk()->assertJsonPath('data.color', '#c9f1d5');
+        $this->putJson("{$url}/{$id}", ['name' => 'Design', 'color' => '#000000'])->assertUnprocessable()->assertJsonValidationErrors('color');
+        $this->postJson($url, ['name' => 'Invalid', 'color' => 'red'])->assertUnprocessable()->assertJsonValidationErrors('color');
+        $this->getJson($url)->assertOk()->assertJsonPath('data.departments.0.color', '#c9f1d5');
+        $this->assertDatabaseHas('departments', ['id' => $id, 'color' => '#c9f1d5']);
+    }
+
+    public function test_calendar_department_filter_includes_only_matching_tasks_tails_and_queue(): void
+    {
+        $owner = User::factory()->create();
+        $scope = Scope::factory()->create(['owner_id' => $owner->id]);
+        $department = Department::factory()->create(['scope_id' => $scope->id, 'color' => '#f9dce5']);
+        $other = Department::factory()->create(['scope_id' => $scope->id]);
+        foreach ([$department, $other] as $item) {
+            $task = Task::factory()->create(['scope_id' => $scope->id, 'department_id' => $item->id, 'due_at' => '2026-10-08', 'status' => 'todo']);
+            $task->plannerTails()->create(['scope_id' => $scope->id, 'created_by' => $owner->id, 'planned_on' => '2026-10-09']);
+            Task::factory()->create(['scope_id' => $scope->id, 'department_id' => $item->id, 'due_at' => null, 'status' => 'todo']);
+        }
+        $this->actingAs($owner)->withHeaders(self::HEADERS);
+        $url = "/api/scopes/{$scope->id}/planner?from=2026-10-01&to=2026-10-31";
+        $this->getJson($url)->assertOk()->assertJsonCount(2, 'data.tasks')->assertJsonCount(2, 'data.tails');
+        $this->getJson("{$url}&department_id={$department->id}")->assertOk()
+            ->assertJsonCount(1, 'data.tasks')->assertJsonCount(1, 'data.tails')->assertJsonCount(1, 'data.unscheduled')
+            ->assertJsonPath('data.tasks.0.department.color', '#f9dce5')
+            ->assertJsonPath('data.tails.0.task.department.id', $department->id)
+            ->assertJsonPath('data.unscheduled.0.department.id', $department->id);
+        $foreign = Department::factory()->create();
+        $this->getJson("{$url}&department_id={$foreign->id}")->assertUnprocessable();
+    }
+
     public function test_cross_department_queue_claim_and_personal_updates_do_not_open_the_project(): void
     {
         $owner = User::factory()->create();

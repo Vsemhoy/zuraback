@@ -23,6 +23,20 @@ class TaskConversationTypesTest extends TestCase
         return [$owner, $scope, $task, "/api/scopes/{$scope->id}/tasks/{$task->id}/comments"];
     }
 
+    public function test_comments_include_author_avatar_without_exposing_other_profile_fields(): void
+    {
+        [$owner, , , $url] = $this->workspace();
+        $avatar = ['preset' => 'Anima_00024_.png', 'crop' => ['x' => 30, 'y' => 60, 'zoom' => 1.5]];
+        $owner->update(['profile' => ['avatar' => $avatar, 'private_note' => 'internal']]);
+        $id = $this->postJson($url, ['kind' => 'question', 'content' => 'Ready?'])->assertCreated()
+            ->assertJsonPath('data.created_by.avatar', $avatar)->assertJsonMissingPath('data.created_by.profile')->json('data.id');
+        $this->getJson($url)->assertOk()->assertJsonPath('data.0.created_by.avatar', $avatar)
+            ->assertJsonMissingPath('data.0.created_by.profile');
+        $this->patchJson("{$url}/{$id}", ['is_answered' => true])->assertOk()->assertJsonPath('data.created_by.avatar', $avatar);
+        $owner->update(['profile' => []]);
+        $this->getJson($url)->assertOk()->assertJsonPath('data.0.created_by.avatar', null);
+    }
+
     public function test_question_answer_and_answer_deletion_update_card_summary_and_audit(): void
     {
         [$owner, $scope, $task, $url] = $this->workspace('done');

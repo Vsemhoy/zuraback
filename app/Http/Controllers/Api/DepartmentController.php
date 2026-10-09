@@ -29,7 +29,7 @@ class DepartmentController extends Controller
 
     public function store(Request $request, Scope $scope): JsonResource
     {
-        $data = $request->validate(['name' => ['required', 'string', 'max:120', Rule::unique('departments')->where('scope_id', $scope->id)], 'description' => ['nullable', 'string', 'max:2000']]);
+        $data = $request->validate(['name' => ['required', 'string', 'max:120', Rule::unique('departments')->where('scope_id', $scope->id)], 'description' => ['nullable', 'string', 'max:2000'], 'color' => ['sometimes', 'required', Rule::in(Department::COLORS)]]);
 
         return DB::transaction(function () use ($request, $scope, $data): JsonResource {
             $department = Department::create(['scope_id' => $scope->id, ...$data]);
@@ -41,7 +41,7 @@ class DepartmentController extends Controller
     public function update(Request $request, Scope $scope, Department $department): JsonResource
     {
         abort_unless($department->scope_id === $scope->id, 404);
-        $data = $request->validate(['name' => ['required', 'string', 'max:120', Rule::unique('departments')->where('scope_id', $scope->id)->ignore($department->id)], 'description' => ['nullable', 'string', 'max:2000'], 'user_ids' => ['sometimes', 'array'], 'user_ids.*' => ['ulid', 'distinct']]);
+        $data = $request->validate(['name' => ['required', 'string', 'max:120', Rule::unique('departments')->where('scope_id', $scope->id)->ignore($department->id)], 'description' => ['nullable', 'string', 'max:2000'], 'color' => ['sometimes', 'required', Rule::in(Department::COLORS)], 'user_ids' => ['sometimes', 'array'], 'user_ids.*' => ['ulid', 'distinct']]);
         DB::transaction(function () use ($scope, $department, $data): void {
             $scope->newQuery()->whereKey($scope->id)->lockForUpdate()->firstOrFail();
             if (isset($data['user_ids'])) {
@@ -53,7 +53,7 @@ class DepartmentController extends Controller
                     $scope->members()->updateOrCreate(['user_id' => $id], ['department_id' => $department->id]);
                 }
             }
-            $department->update(collect($data)->only(['name', 'description'])->all());
+            $department->update(collect($data)->only(['name', 'description', 'color'])->all());
         });
 
         return new JsonResource($department->fresh());

@@ -27,7 +27,7 @@ class TaskConversationController extends Controller
     {
         $this->assertTask($request, $scope, $task);
 
-        return CommentResource::collection($task->comments()->with('creator:id,name')->oldest()->get());
+        return CommentResource::collection($task->comments()->with('creator:id,name,profile')->oldest()->get());
     }
 
     public function storeComment(StoreTaskCommentRequest $request, Scope $scope, Task $task): CommentResource
@@ -64,7 +64,7 @@ class TaskConversationController extends Controller
             return $comment;
         });
 
-        return new CommentResource($comment->load('creator:id,name'));
+        return new CommentResource($comment->load('creator:id,name,profile'));
     }
 
     public function destroyComment(Request $request, Scope $scope, Task $task, Comment $comment): Response
@@ -106,7 +106,7 @@ class TaskConversationController extends Controller
             $this->setAnswered($request, $scope, $task, $locked, $request->boolean('is_answered'));
         });
 
-        return new CommentResource($comment->fresh()->load('creator:id,name'));
+        return new CommentResource($comment->fresh()->load('creator:id,name,profile'));
     }
 
     public function activity(Request $request, Scope $scope, Task $task): AnonymousResourceCollection
