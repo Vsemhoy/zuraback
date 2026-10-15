@@ -85,7 +85,7 @@ class DarklogController extends Controller
     public function options(Request $request, Scope $scope): JsonResponse
     {
         $actor = $this->context->actor($request);
-        $people = User::query()->where('is_active', true)->where('status', 'active')
+        $people = User::query()->where('is_active', true)->where('status', 'active')->whereIn('type', ['real', 'virtual'])
             ->where(fn (Builder $q) => $q->whereKey($scope->owner_id)->orWhereHas('scopeMemberships', fn (Builder $m) => $m->where('scope_id', $scope->id)->where('is_active', true)))
             ->orderBy('name')->get(['id', 'name', 'profile', 'is_executor', 'type']);
 

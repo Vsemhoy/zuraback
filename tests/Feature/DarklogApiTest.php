@@ -44,6 +44,41 @@ class DarklogApiTest extends TestCase
         return $item;
     }
 
+    public function test_responsible_options_only_include_active_real_and_virtual_people(): void
+    {
+        [$owner, $scope, $url] = $this->workspace();
+        $human = User::factory()->create(['type' => 'real', 'is_executor' => false]);
+        $virtual = User::factory()->create(['type' => 'virtual', 'is_executor' => false]);
+        $agent = User::factory()->create(['type' => 'agent']);
+        foreach ([$human, $virtual, $agent] as $person) {
+            $scope->members()->create(['user_id' => $person->id, 'role' => 'member', 'project_access_mode' => 'all']);
+        }
+        $people = $this->getJson($url.'/options')->assertOk()->assertJsonCount(3, 'data.people')->json('data.people');
+        $this->assertEqualsCanonicalizing([$owner->id, $human->id, $virtual->id], array_column($people, 'id'));
+        $item = $this->item($owner, $scope);
+        $this->patchJson($url.'/'.$item->id, ['responsible_id' => $virtual->id])->assertOk()->assertJsonPath('data.responsible.id', $virtual->id);
+        $this->assertDatabaseHas('darklogs', ['id' => $item->id, 'responsible_id' => $virtual->id]);
+    }
+
+    public function test_assigning_an_agent_is_rejected_on_create_update_and_legacy_reassignment(): void
+    {
+        [$owner, $scope, $url] = $this->workspace();
+        $agent = User::factory()->create(['type' => 'agent']);
+        $scope->members()->create(['user_id' => $agent->id, 'role' => 'member', 'project_access_mode' => 'all']);
+        $this->postJson($url, ['title' => 'Wrong maintainer', 'responsible_id' => $agent->id, 'periods' => [['starts_at' => '2026-10-10T12:00:00Z']]])
+            ->assertUnprocessable()->assertJsonValidationErrors('responsible_id')
+            ->assertJsonPath('errors.responsible_id.0', 'Ответственным может быть только реальный или виртуальный человек, не агент.');
+        $this->assertDatabaseCount('darklogs', 0);
+        $item = $this->item($owner, $scope, ['responsible_id' => $owner->id]);
+        $this->patchJson($url.'/'.$item->id, ['responsible_id' => $agent->id])->assertUnprocessable()->assertJsonValidationErrors('responsible_id');
+        $this->assertDatabaseHas('darklogs', ['id' => $item->id, 'responsible_id' => $owner->id]);
+        $item->update(['responsible_id' => $agent->id]);
+        $this->patchJson($url.'/'.$item->id, ['title' => 'Historical record remains editable'])->assertOk();
+        $this->patchJson($url.'/'.$item->id, ['responsible_id' => $agent->id])->assertUnprocessable()->assertJsonValidationErrors('responsible_id');
+        $this->patchJson($url.'/'.$item->id, ['responsible_id' => null])->assertOk()->assertJsonPath('data.responsible', null);
+        $this->assertDatabaseHas('darklogs', ['id' => $item->id, 'responsible_id' => null]);
+    }
+
     public function test_problem_without_a_culprit_is_created_with_periods_and_audited(): void
     {
         [$owner, $scope, $url] = $this->workspace();

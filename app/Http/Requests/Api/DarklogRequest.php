@@ -20,7 +20,7 @@ class DarklogRequest extends WorkspaceRequest
             'title' => [$required, 'required', 'string', 'max:255'],
             'project_id' => ['sometimes', 'nullable', 'ulid', $project],
             'department_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('departments', 'id')->where('scope_id', $scopeId)],
-            'responsible_id' => ['sometimes', 'nullable', 'ulid'],
+            'responsible_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('users', 'id')->whereIn('type', ['real', 'virtual'])],
             'kind' => ['sometimes', Rule::in(Darklog::KINDS)],
             'origin' => ['sometimes', Rule::in(Darklog::ORIGINS)],
             'severity' => ['sometimes', Rule::in(Darklog::SEVERITIES)],
@@ -38,5 +38,10 @@ class DarklogRequest extends WorkspaceRequest
             'periods.*.ends_at' => ['nullable', 'date', 'before_or_equal:now'],
             'periods.*.note' => ['nullable', 'string', 'max:2000'],
         ];
+    }
+
+    public function messages(): array
+    {
+        return ['responsible_id.exists' => 'Ответственным может быть только реальный или виртуальный человек, не агент.'];
     }
 }
