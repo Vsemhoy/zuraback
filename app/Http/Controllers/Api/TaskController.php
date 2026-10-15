@@ -76,7 +76,6 @@ class TaskController extends Controller
         if (! empty($data['parent_id'])) {
             $parent = $scope->tasks()->findOrFail($data['parent_id']);
             $parent->assertEditable();
-            abort_if($parent->parent_id !== null, 422, 'Only one level of true subtasks is supported.');
         }
 
         $data = $this->completion->apply(new Task, $data, $actor);
@@ -157,30 +156,33 @@ class TaskController extends Controller
             abort_if($task->status === 'blocked' && $data['status'] !== 'blocked' && $task->blockers()->whereNull('resolved_at')->exists(), 422, 'Resolve the active blocker before changing task status.');
         }
 
-        if (array_key_exists('parent_id', $data) && $data['parent_id']) {
-            abort_if($data['parent_id'] === $task->id, 422, 'A task cannot be its own parent.');
-            $parent = $scope->tasks()->findOrFail($data['parent_id']);
-            $parent->assertEditable();
-            abort_if($parent->parent_id !== null, 422, 'Only one level of true subtasks is supported.');
-            abort_if($task->children()->exists(), 422, 'A task with subtasks cannot become a subtask.');
-        }
-
         $data = $this->completion->apply($task, $data, $this->context->actor($request));
 
-        $before = $task->only(array_keys($data));
-        $task->update($data);
-        ActivityLog::query()->create([
-            'scope_id' => $scope->id,
-            'actor_id' => $this->context->actor($request)->id,
-            'subject_type' => $task->getMorphClass(),
-            'subject_id' => $task->id,
-            'action' => array_key_exists('due_at', $data) ? 'task.planner_rescheduled' : 'task.updated',
-            'before' => $before,
-            'after' => $task->fresh()->only(array_keys($data)),
-            'context' => $this->context->auditMetadata($request),
-            'ip_address' => $request->ip(),
-            'user_agent' => $request->userAgent(),
-        ]);
+        DB::transaction(function () use ($request, $scope, $task, $data): void {
+            if (array_key_exists('parent_id', $data)) {
+                Scope::query()->whereKey($scope->id)->lockForUpdate()->firstOrFail();
+                if ($data['parent_id']) {
+                    $parent = $scope->tasks()->findOrFail($data['parent_id']);
+                    $parent->assertEditable();
+                    $this->assertParentHierarchy($scope, $task, $parent);
+                }
+            }
+
+            $before = $task->only(array_keys($data));
+            $task->update($data);
+            ActivityLog::query()->create([
+                'scope_id' => $scope->id,
+                'actor_id' => $this->context->actor($request)->id,
+                'subject_type' => $task->getMorphClass(),
+                'subject_id' => $task->id,
+                'action' => array_key_exists('due_at', $data) ? 'task.planner_rescheduled' : 'task.updated',
+                'before' => $before,
+                'after' => $task->fresh()->only(array_keys($data)),
+                'context' => $this->context->auditMetadata($request),
+                'ip_address' => $request->ip(),
+                'user_agent' => $request->userAgent(),
+            ]);
+        });
 
         return new TaskResource($task->fresh()->load(['department:id,name,color', 'creator:id,name', 'project:id,title,key,color', 'kpi:id,name,kind,points,minimum_completed_tasks', 'assignee:id,name,type', 'customer:id,name,type,position', 'delegatedAgent:id,name,type', 'checklistItems.assignee:id,name', 'checklistItems.completedBy:id,name', 'blockers.responsibleUser:id,name', 'blockers.blockedBy:id,name', 'blockers.resolvedBy:id,name', 'children' => fn ($children) => $this->access->constrainTasks($children->getQuery(), $this->context->actor($request), $scope)->select(['id', 'scope_id', 'project_id', 'parent_id', 'task_key', 'title', 'status', 'priority', 'due_at', 'assignee_id']), 'plannerTails' => fn ($query) => $query->orderBy('planned_on')]));
     }
@@ -336,6 +338,23 @@ class TaskController extends Controller
                 ->orWhere(fn ($side) => $side->where('target_type', $task->getMorphClass())->where('target_id', $task->id));
         })->delete();
         $task->forceDelete();
+    }
+
+    private function assertParentHierarchy(Scope $scope, Task $task, Task $parent): void
+    {
+        $visited = [$task->id => true];
+        $ancestor = $parent;
+
+        while ($ancestor !== null) {
+            abort_if(isset($visited[$ancestor->id]), 422, 'A task cannot be its own ancestor.');
+            $visited[$ancestor->id] = true;
+            if ($ancestor->parent_id === null) {
+                return;
+            }
+            $ancestor = Task::withTrashed()->where('scope_id', $scope->id)
+                ->select(['id', 'parent_id'])->find($ancestor->parent_id);
+            abort_unless($ancestor, 422, 'The parent task hierarchy is invalid.');
+        }
     }
 
     /** @param array<string, mixed> $data */

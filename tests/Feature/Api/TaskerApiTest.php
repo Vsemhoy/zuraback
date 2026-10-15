@@ -5,6 +5,7 @@ namespace Tests\Feature\Api;
 use App\Models\ActivityLog;
 use App\Models\EntityLink;
 use App\Models\Scope;
+use App\Models\Task;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -367,6 +368,138 @@ class TaskerApiTest extends TestCase
                 ->orWhere(fn ($side) => $side->where('source_id', $parent['id'])->where('target_id', $subtask['id']));
         })->exists());
         $this->assertDatabaseHas('activity_logs', ['subject_id' => $subtask['id'], 'action' => 'task.detached']);
+    }
+
+    public function test_tasks_can_be_created_below_a_deep_parent_without_changing_ancestor_content(): void
+    {
+        [$user, $scope] = $this->workspace();
+        $root = Task::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id, 'description' => 'Keep root description', 'result' => 'Keep root result', 'agent_notes' => 'Keep root notes']);
+        $parent = $root;
+        for ($level = 0; $level < 25; $level++) {
+            $parent = Task::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id, 'parent_id' => $parent->id]);
+        }
+
+        $child = $this->actingAs($user)->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/tasks", ['parent_id' => $parent->id, 'title' => 'Deep child'])
+            ->assertCreated()->assertJsonPath('data.parent_id', $parent->id)->json('data');
+
+        $this->assertDatabaseHas('tasks', ['id' => $child['id'], 'parent_id' => $parent->id]);
+        $this->assertDatabaseHas('tasks', ['id' => $root->id, 'description' => 'Keep root description', 'result' => 'Keep root result', 'agent_notes' => 'Keep root notes']);
+        $this->getJson("/api/scopes/{$scope->id}/tasks/{$parent->id}")
+            ->assertOk()->assertJsonPath('data.children.0.id', $child['id']);
+    }
+
+    public function test_a_branch_with_children_can_be_moved_below_another_nested_task(): void
+    {
+        [$user, $scope] = $this->workspace();
+        $attributes = ['scope_id' => $scope->id, 'created_by' => $user->id];
+        $branch = Task::factory()->create($attributes);
+        $child = Task::factory()->create([...$attributes, 'parent_id' => $branch->id]);
+        $other = Task::factory()->create($attributes);
+        $target = Task::factory()->create([...$attributes, 'parent_id' => $other->id]);
+
+        $this->actingAs($user)->withHeaders(self::HEADERS)
+            ->patchJson("/api/scopes/{$scope->id}/tasks/{$branch->id}", ['parent_id' => $target->id])
+            ->assertOk()->assertJsonPath('data.parent_id', $target->id)->assertJsonPath('data.children.0.id', $child->id);
+
+        $this->assertDatabaseHas('tasks', ['id' => $branch->id, 'parent_id' => $target->id]);
+        $this->assertDatabaseHas('tasks', ['id' => $child->id, 'parent_id' => $branch->id]);
+        $this->assertDatabaseHas('activity_logs', ['subject_id' => $branch->id, 'action' => 'task.updated']);
+    }
+
+    public function test_assigning_a_deep_descendant_as_parent_returns_422_without_changing_the_task(): void
+    {
+        [$user, $scope] = $this->workspace();
+        $attributes = ['scope_id' => $scope->id, 'created_by' => $user->id];
+        $root = Task::factory()->create([...$attributes, 'title' => 'Original title']);
+        $parent = $root;
+        for ($level = 0; $level < 25; $level++) {
+            $parent = Task::factory()->create([...$attributes, 'parent_id' => $parent->id]);
+        }
+
+        $this->actingAs($user)->withHeaders(self::HEADERS)
+            ->patchJson("/api/scopes/{$scope->id}/tasks/{$root->id}", ['parent_id' => $parent->id, 'title' => 'Must not save'])
+            ->assertUnprocessable()->assertJsonPath('message', 'A task cannot be its own ancestor.');
+
+        $this->assertDatabaseHas('tasks', ['id' => $root->id, 'parent_id' => null, 'title' => 'Original title']);
+        $this->assertDatabaseMissing('activity_logs', ['subject_id' => $root->id, 'action' => 'task.updated']);
+    }
+
+    public function test_assigning_a_task_to_itself_returns_422(): void
+    {
+        [$user, $scope] = $this->workspace();
+        $task = Task::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id]);
+
+        $this->actingAs($user)->withHeaders(self::HEADERS)
+            ->patchJson("/api/scopes/{$scope->id}/tasks/{$task->id}", ['parent_id' => $task->id])
+            ->assertUnprocessable()->assertJsonPath('message', 'A task cannot be its own ancestor.');
+
+        $this->assertDatabaseHas('tasks', ['id' => $task->id, 'parent_id' => null]);
+    }
+
+    public function test_deleted_ancestors_do_not_allow_a_cycle_to_be_created(): void
+    {
+        [$user, $scope] = $this->workspace();
+        $attributes = ['scope_id' => $scope->id, 'created_by' => $user->id];
+        $root = Task::factory()->create($attributes);
+        $middle = Task::factory()->create([...$attributes, 'parent_id' => $root->id]);
+        $leaf = Task::factory()->create([...$attributes, 'parent_id' => $middle->id]);
+        $middle->delete();
+
+        $this->actingAs($user)->withHeaders(self::HEADERS)
+            ->patchJson("/api/scopes/{$scope->id}/tasks/{$root->id}", ['parent_id' => $leaf->id])
+            ->assertUnprocessable();
+
+        $this->assertDatabaseHas('tasks', ['id' => $root->id, 'parent_id' => null]);
+    }
+
+    public function test_nested_tasks_cannot_be_attached_to_a_parent_from_another_scope(): void
+    {
+        [$user, $scope] = $this->workspace();
+        $root = Task::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id]);
+        $child = Task::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id, 'parent_id' => $root->id]);
+        $otherScope = Scope::factory()->create(['owner_id' => $user->id]);
+        $foreignParent = Task::factory()->create(['scope_id' => $otherScope->id, 'created_by' => $user->id]);
+
+        $this->actingAs($user)->withHeaders(self::HEADERS)
+            ->patchJson("/api/scopes/{$scope->id}/tasks/{$child->id}", ['parent_id' => $foreignParent->id])
+            ->assertUnprocessable();
+
+        $this->assertDatabaseHas('tasks', ['id' => $child->id, 'parent_id' => $root->id]);
+    }
+
+    public function test_checklist_conversion_works_inside_a_subtask(): void
+    {
+        [$user, $scope] = $this->workspace();
+        $attributes = ['scope_id' => $scope->id, 'created_by' => $user->id];
+        $root = Task::factory()->create($attributes);
+        $parent = Task::factory()->create([...$attributes, 'parent_id' => $root->id]);
+        $item = $this->actingAs($user)->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/tasks/{$parent->id}/checklist", ['title' => 'Growing nested step'])
+            ->assertCreated()->json('data');
+
+        $child = $this->postJson("/api/scopes/{$scope->id}/tasks/{$parent->id}/checklist/{$item['id']}/convert-to-subtask")
+            ->assertCreated()->assertJsonPath('data.parent_id', $parent->id)->json('data');
+
+        $this->assertDatabaseHas('tasks', ['id' => $child['id'], 'parent_id' => $parent->id, 'title' => 'Growing nested step']);
+        $this->assertDatabaseMissing('task_checklist_items', ['id' => $item['id']]);
+        $this->assertDatabaseHas('activity_logs', ['subject_id' => $child['id'], 'action' => 'checklist_item.converted_to_subtask']);
+    }
+
+    public function test_detaching_a_nested_branch_preserves_its_children(): void
+    {
+        [$user, $scope] = $this->workspace();
+        $attributes = ['scope_id' => $scope->id, 'created_by' => $user->id];
+        $root = Task::factory()->create($attributes);
+        $branch = Task::factory()->create([...$attributes, 'parent_id' => $root->id]);
+        $child = Task::factory()->create([...$attributes, 'parent_id' => $branch->id]);
+
+        $this->actingAs($user)->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/tasks/{$branch->id}/detach")
+            ->assertOk()->assertJsonPath('data.parent_id', null);
+
+        $this->assertDatabaseHas('tasks', ['id' => $branch->id, 'parent_id' => null]);
+        $this->assertDatabaseHas('tasks', ['id' => $child->id, 'parent_id' => $branch->id]);
     }
 
     public function test_task_relations_are_created_by_human_key_and_presented_from_current_perspective(): void

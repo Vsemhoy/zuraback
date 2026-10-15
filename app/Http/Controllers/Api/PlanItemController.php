@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\PlanItemRequest;
 use App\Models\ActivityLog;
+use App\Models\Department;
 use App\Models\PlanItem;
 use App\Models\Scope;
 use App\Models\User;
@@ -14,6 +15,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class PlanItemController extends Controller
 {
@@ -22,12 +24,15 @@ class PlanItemController extends Controller
     public function index(Request $request, Scope $scope): JsonResource
     {
         $data = $request->validate(['year' => ['required', 'integer', 'between:2000,2099'], 'month' => ['nullable', 'date_format:Y-m'],
-            'assignee_id' => ['nullable', 'ulid'], 'project_id' => ['nullable', 'ulid'], 'status' => ['nullable', 'in:open,done'], 'q' => ['nullable', 'string', 'max:150']]);
+            'assignee_id' => ['nullable', 'ulid'], 'project_id' => ['nullable', 'ulid'],
+            'department_id' => ['nullable', 'ulid', Rule::exists('departments', 'id')->where('scope_id', $scope->id)],
+            'status' => ['nullable', 'in:open,done'], 'q' => ['nullable', 'string', 'max:150']]);
         $actor = $this->context->actor($request);
         $query = $this->plans->visible($actor, $scope)->whereBetween('month', [$data['year'].'-01', $data['year'].'-12'])
             ->when($data['month'] ?? null, fn ($q, $value) => $q->where('month', $value))
             ->when($data['assignee_id'] ?? null, fn ($q, $value) => $q->where('assignee_id', $value))
             ->when($data['project_id'] ?? null, fn ($q, $value) => $q->where('project_id', $value))
+            ->when($data['department_id'] ?? null, fn ($q, $value) => $q->where('department_id', $value))
             ->when($data['status'] ?? null, fn ($q, $value) => $value === 'done' ? $q->whereNotNull('completed_at') : $q->whereNull('completed_at'))
             ->when($data['q'] ?? null, fn ($q, $value) => $q->where('title', 'like', '%'.$value.'%'));
         $total = (clone $query)->count();
@@ -43,6 +48,7 @@ class PlanItemController extends Controller
         $actor = $this->context->actor($request);
 
         return new JsonResource([
+            'departments' => Department::query()->where('scope_id', $scope->id)->orderBy('name')->get(['id', 'name', 'color']),
             'projects' => $scope->projects()->whereIn('id', $this->plans->projectIds($actor, $scope))->orderBy('sort_order')->get(['id', 'key', 'title', 'include_in_reports']),
             'people' => User::query()->whereIn('type', ['real', 'virtual'])->where('is_executor', true)
                 ->where(fn ($q) => $q->whereKey($scope->owner_id)->orWhereHas('scopeMemberships', fn ($m) => $m->where('scope_id', $scope->id)->where('is_active', true)))

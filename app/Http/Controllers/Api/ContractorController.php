@@ -104,6 +104,7 @@ class ContractorController extends Controller
                     'id' => $user->id,
                     'name' => $user->name,
                     'position' => $user->position,
+                    'avatar' => $user->profile['avatar'] ?? null,
                     'type' => $user->type,
                     'is_executor' => $user->is_executor,
                     'is_current' => $user->id === $request->user()->id,

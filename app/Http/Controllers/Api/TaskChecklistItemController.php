@@ -90,7 +90,6 @@ class TaskChecklistItemController extends Controller
     public function convertToSubtask(Request $request, Scope $scope, Task $task, TaskChecklistItem $item, TaskKeyService $keys): TaskResource
     {
         $this->assertItem($request, $scope, $task, $item, 'task.update');
-        abort_if($task->parent_id !== null, 422, 'Only one level of true subtasks is supported.');
 
         $subtask = DB::transaction(function () use ($request, $scope, $task, $item, $keys): Task {
             $lockedItem = TaskChecklistItem::query()->lockForUpdate()->findOrFail($item->id);

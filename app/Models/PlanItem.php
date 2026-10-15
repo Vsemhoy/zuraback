@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-#[Fillable(['scope_id', 'project_id', 'created_by', 'assignee_id', 'title', 'description', 'resources', 'expected_result', 'impact', 'actual_result', 'month', 'starts_on', 'ends_on', 'estimated_minutes', 'priority', 'completed_at', 'completed_by'])]
+#[Fillable(['scope_id', 'project_id', 'department_id', 'created_by', 'assignee_id', 'title', 'description', 'resources', 'expected_result', 'impact', 'actual_result', 'month', 'starts_on', 'ends_on', 'estimated_minutes', 'priority', 'completed_at', 'completed_by'])]
 class PlanItem extends DomainModel
 {
     use SoftDeletes;
@@ -17,6 +17,11 @@ class PlanItem extends DomainModel
     public function project(): BelongsTo
     {
         return $this->belongsTo(Project::class);
+    }
+
+    public function department(): BelongsTo
+    {
+        return $this->belongsTo(Department::class);
     }
 
     public function assignee(): BelongsTo

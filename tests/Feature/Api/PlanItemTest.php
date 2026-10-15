@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Api;
 
+use App\Models\Department;
 use App\Models\Kpi;
 use App\Models\MonthlyReport;
 use App\Models\PlanItem;
@@ -19,6 +20,75 @@ class PlanItemTest extends TestCase
     use RefreshDatabase;
 
     private const HEADERS = ['Accept' => 'application/json', 'Content-Type' => 'application/json', 'X-App-Request' => 'Zuratax'];
+
+    public function test_plan_department_can_be_set_changed_and_cleared_without_changing_project_or_tasks(): void
+    {
+        [$user, $scope, $base] = $this->workspace();
+        $first = Department::factory()->create(['scope_id' => $scope->id, 'name' => 'Design']);
+        $second = Department::factory()->create(['scope_id' => $scope->id, 'name' => 'IT']);
+        $id = $this->postJson($base.'/plans', ['title' => 'Department work', 'month' => '2026-10', 'department_id' => $first->id])
+            ->assertOk()->assertJsonPath('data.department_id', $first->id)->assertJsonPath('data.department.name', 'Design')->json('data.id');
+
+        $this->patchJson($base.'/plans/'.$id, ['department_id' => $second->id])
+            ->assertOk()->assertJsonPath('data.department.id', $second->id)->assertJsonPath('data.project_id', null);
+        $this->assertDatabaseHas('plan_items', ['id' => $id, 'department_id' => $second->id]);
+        $this->patchJson($base.'/plans/'.$id, ['title' => 'Renamed'])->assertOk()->assertJsonPath('data.department_id', $second->id);
+        $this->patchJson($base.'/plans/'.$id, ['department_id' => null])->assertOk()->assertJsonPath('data.department', null);
+        $this->assertDatabaseHas('plan_items', ['id' => $id, 'department_id' => null, 'project_id' => null]);
+        $this->assertDatabaseHas('activity_logs', ['subject_id' => $id, 'action' => 'plan.updated']);
+    }
+
+    public function test_plan_list_department_filter_combines_with_other_filters_and_options_are_scope_local(): void
+    {
+        [$user, $scope, $base] = $this->workspace();
+        $department = Department::factory()->create(['scope_id' => $scope->id]);
+        $foreign = Department::factory()->create();
+        $plan = PlanItem::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id, 'department_id' => $department->id, 'assignee_id' => $user->id, 'month' => '2026-10', 'completed_at' => now()]);
+        PlanItem::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id, 'month' => '2026-10']);
+        PlanItem::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id, 'department_id' => $department->id, 'month' => '2026-09']);
+
+        $this->getJson($base.'/plans?'.http_build_query(['year' => 2026, 'department_id' => $department->id, 'month' => '2026-10', 'status' => 'done', 'assignee_id' => $user->id]))
+            ->assertOk()->assertJsonPath('data.total', 1)->assertJsonPath('data.done', 1)->assertJsonPath('data.items.0.id', $plan->id)->assertJsonPath('data.items.0.department.id', $department->id);
+        $this->getJson($base.'/plans/options')->assertOk()->assertJsonCount(1, 'data.departments')->assertJsonPath('data.departments.0.id', $department->id)->assertJsonMissing(['id' => $foreign->id]);
+    }
+
+    public function test_plan_rejects_foreign_departments_for_creation_updates_and_filters_with_422(): void
+    {
+        [$user, $scope, $base] = $this->workspace();
+        $foreign = Department::factory()->create();
+        $plan = PlanItem::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id]);
+
+        $this->postJson($base.'/plans', ['title' => 'Wrong scope', 'month' => '2026-10', 'department_id' => $foreign->id])->assertUnprocessable()->assertJsonValidationErrors('department_id');
+        $this->patchJson($base.'/plans/'.$plan->id, ['department_id' => $foreign->id])->assertUnprocessable()->assertJsonValidationErrors('department_id');
+        $this->getJson($base.'/plans?year=2026&department_id='.$foreign->id)->assertUnprocessable()->assertJsonValidationErrors('department_id');
+        $this->assertDatabaseCount('plan_items', 1);
+        $this->assertDatabaseHas('plan_items', ['id' => $plan->id, 'department_id' => null]);
+    }
+
+    public function test_department_filter_does_not_bypass_private_project_access(): void
+    {
+        [$owner, $scope, $base] = $this->workspace();
+        $department = Department::factory()->create(['scope_id' => $scope->id]);
+        $private = Project::factory()->create(['scope_id' => $scope->id, 'created_by' => $owner->id, 'visibility' => 'private']);
+        $plan = PlanItem::factory()->create(['scope_id' => $scope->id, 'created_by' => $owner->id, 'project_id' => $private->id, 'department_id' => $department->id]);
+        $member = User::factory()->create();
+        $scope->members()->create(['user_id' => $member->id, 'role' => 'member', 'project_access_mode' => 'all', 'department_id' => $department->id]);
+
+        $this->actingAs($member)->getJson($base.'/plans?year=2026&department_id='.$department->id)->assertOk()->assertJsonPath('data.total', 0)->assertJsonMissing(['id' => $plan->id]);
+        $this->getJson($base.'/plans/'.$plan->id)->assertNotFound();
+    }
+
+    public function test_department_with_plan_history_cannot_be_deleted(): void
+    {
+        [$user, $scope, $base] = $this->workspace();
+        $department = Department::factory()->create(['scope_id' => $scope->id]);
+        $plan = PlanItem::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id, 'department_id' => $department->id]);
+
+        $this->deleteJson($base.'/departments/'.$department->id)->assertUnprocessable();
+        $plan->delete();
+        $this->deleteJson($base.'/departments/'.$department->id)->assertUnprocessable();
+        $this->assertModelExists($department);
+    }
 
     public function test_candidates_and_selected_tasks_include_existing_plans_without_blocking_reuse(): void
     {

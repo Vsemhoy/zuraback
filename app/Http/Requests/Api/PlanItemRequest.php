@@ -2,6 +2,8 @@
 
 namespace App\Http\Requests\Api;
 
+use Illuminate\Validation\Rule;
+
 class PlanItemRequest extends WorkspaceRequest
 {
     public function rules(): array
@@ -12,6 +14,7 @@ class PlanItemRequest extends WorkspaceRequest
             'title' => [$required, 'required', 'string', 'max:255'],
             'month' => [$required, 'required', 'date_format:Y-m', 'regex:/^20[0-9]{2}-(0[1-9]|1[0-2])$/'],
             'project_id' => ['sometimes', 'nullable', 'ulid'],
+            'department_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('departments', 'id')->where('scope_id', $this->route('scope')->id)],
             'assignee_id' => ['sometimes', 'nullable', 'ulid'],
             'description' => ['sometimes', 'nullable', 'string', 'max:20000'],
             'resources' => ['sometimes', 'nullable', 'string', 'max:10000'],

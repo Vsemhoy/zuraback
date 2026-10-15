@@ -53,7 +53,7 @@ class PlanItemService
     {
         $visibleTasks = $this->tasks($actor, $scope, $report)->select('tasks.id');
 
-        return $query->with(['project:id,title,key,include_in_reports', 'assignee:id,name', 'completer:id,name',
+        return $query->with(['project:id,title,key,include_in_reports', 'department:id,name,color', 'assignee:id,name', 'completer:id,name',
             'tasks' => fn ($tasks) => $tasks->whereIn('tasks.id', $visibleTasks)->select(['tasks.id', 'scope_id', 'project_id', 'task_key', 'title', 'status', 'due_at', 'assignee_id'])
                 ->with($this->taskPlanRelations($actor, $scope, $report))]);
     }
@@ -80,7 +80,7 @@ class PlanItemService
         $tasks = $item->tasks->filter(fn (Task $task): bool => $task->scope_id === $item->scope_id && $task->project_id === $item->project_id)->values();
 
         return [...$item->attributesToArray(),
-            'project' => $item->project, 'assignee' => $item->assignee, 'completer' => $item->completer,
+            'project' => $item->project, 'department' => $item->department, 'assignee' => $item->assignee, 'completer' => $item->completer,
             'tasks' => $tasks->map(fn (Task $task): array => $this->taskRow($task))->all(),
             'tasks_count' => $tasks->count(), 'completed_tasks_count' => $tasks->where('status', 'done')->count()];
     }

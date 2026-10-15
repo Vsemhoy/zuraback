@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Department;
+use App\Models\PlanItem;
 use App\Models\Project;
 use App\Models\Scope;
 use App\Models\Task;
@@ -62,7 +63,7 @@ class DepartmentController extends Controller
     public function destroy(Scope $scope, Department $department): Response
     {
         abort_unless($department->scope_id === $scope->id, 404);
-        abort_if($department->members()->exists() || Task::withTrashed()->where('department_id', $department->id)->exists() || Project::withTrashed()->where('department_id', $department->id)->exists() || DB::table('department_project')->where('department_id', $department->id)->exists(), 422, 'Сначала перенесите сотрудников, проекты и задачи отдела.');
+        abort_if($department->members()->exists() || Task::withTrashed()->where('department_id', $department->id)->exists() || Project::withTrashed()->where('department_id', $department->id)->exists() || PlanItem::withTrashed()->where('department_id', $department->id)->exists() || DB::table('department_project')->where('department_id', $department->id)->exists(), 422, 'Сначала перенесите сотрудников, проекты, задачи и планы отдела.');
         $department->delete();
 
         return response()->noContent();

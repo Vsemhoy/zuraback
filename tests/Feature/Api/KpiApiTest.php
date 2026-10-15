@@ -16,6 +16,19 @@ class KpiApiTest extends TestCase
 
     private const HEADERS = ['Accept' => 'application/json', 'Content-Type' => 'application/json', 'X-App-Request' => 'Zuratax'];
 
+    public function test_kpi_stats_and_person_options_include_only_the_public_avatar_from_the_profile(): void
+    {
+        [$user, $scope] = $this->workspace();
+        $avatar = ['preset' => 'Anima_00001_.png', 'crop' => ['x' => 40, 'y' => 50, 'zoom' => 1.2]];
+        $user->update(['is_executor' => true, 'profile' => ['avatar' => $avatar, 'private_note' => 'Do not expose']]);
+        $this->actingAs($user)->withHeaders(self::HEADERS);
+
+        $this->getJson("/api/scopes/{$scope->id}/kpis/stats?month=2026-10&user_id={$user->id}")
+            ->assertOk()->assertJsonPath('data.people.0.user.avatar', $avatar)->assertJsonMissingPath('data.people.0.user.profile');
+        $this->getJson("/api/scopes/{$scope->id}/contractors/assignable")
+            ->assertOk()->assertJsonPath('data.assignees.0.avatar', $avatar)->assertJsonMissingPath('data.assignees.0.profile');
+    }
+
     public function test_kpis_are_scope_rows_manually_linked_to_tasks(): void
     {
         [$user, $scope] = $this->workspace();

@@ -95,7 +95,7 @@ class KpiController extends Controller
             ->where(fn ($query) => $query->whereKey($scope->owner_id)->orWhereHas('scopeMemberships', fn ($members) => $members->where('scope_id', $scope->id)->where('is_active', true)))
             ->when($userId, fn ($query) => $query->whereKey($userId))
             ->orderBy('name')
-            ->get(['id', 'name', 'position', 'type', 'status'])
+            ->get(['id', 'name', 'position', 'type', 'status', 'profile'])
             ->map(function (User $person) use ($scope, $month, $tasksByArea, $completion, $versions): array {
                 $profile = $this->profiles->resolve($scope, $person->id, $month->format('Y-m'), $versions);
                 $targets = $profile['targets'];
@@ -134,7 +134,7 @@ class KpiController extends Controller
                 $bonusPoints = (int) $rows->where('kind', 'bonus')->sum('awarded_points');
 
                 return [
-                    'user' => $person,
+                    'user' => [...$person->only(['id', 'name', 'position', 'type', 'status']), 'avatar' => $person->profile['avatar'] ?? null],
                     'salary_points' => $salaryPoints,
                     'salary_target' => $targets['salary_target_points'],
                     'salary_progress' => min(100, (int) round($salaryPoints / max(1, $targets['salary_target_points']) * 100)),
