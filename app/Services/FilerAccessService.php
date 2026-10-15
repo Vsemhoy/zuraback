@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Book;
+use App\Models\Darklog;
 use App\Models\Event;
 use App\Models\FilerFile;
 use App\Models\Project;
@@ -13,7 +14,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class FilerAccessService
 {
-    public const SUBJECTS = ['task' => Task::class, 'event' => Event::class, 'book' => Book::class, 'project' => Project::class, 'user' => User::class];
+    public const SUBJECTS = ['task' => Task::class, 'event' => Event::class, 'book' => Book::class, 'project' => Project::class, 'user' => User::class, 'darklog' => Darklog::class];
 
     public function __construct(private readonly ContractorAccessService $access) {}
 
@@ -30,6 +31,13 @@ class FilerAccessService
             return false;
         }
         $ability = $write ? 'task.update' : 'task.view';
+        if ($subject instanceof Darklog) {
+            $subject->loadMissing('project');
+
+            return $this->access->allows($actor, $scope, $ability)
+                && ($subject->project_id === null ? $this->access->canAccessUnprojected($actor, $scope)
+                    : ($subject->project !== null && $this->access->canAccessProject($actor, $scope, $subject->project, $ability)));
+        }
         if ($subject instanceof Task) {
             $allowed = $this->access->canAccessTask($actor, $scope, $subject, $ability);
 

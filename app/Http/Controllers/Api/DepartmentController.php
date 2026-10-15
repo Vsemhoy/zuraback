@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
+use App\Models\Darklog;
 use App\Models\Department;
 use App\Models\PlanItem;
 use App\Models\Project;
@@ -64,6 +65,7 @@ class DepartmentController extends Controller
     {
         abort_unless($department->scope_id === $scope->id, 404);
         abort_if($department->members()->exists() || Task::withTrashed()->where('department_id', $department->id)->exists() || Project::withTrashed()->where('department_id', $department->id)->exists() || PlanItem::withTrashed()->where('department_id', $department->id)->exists() || DB::table('department_project')->where('department_id', $department->id)->exists(), 422, 'Сначала перенесите сотрудников, проекты, задачи и планы отдела.');
+        abort_if(Darklog::withTrashed()->where('department_id', $department->id)->exists(), 422, 'Сначала перенесите дарклоги отдела.');
         $department->delete();
 
         return response()->noContent();

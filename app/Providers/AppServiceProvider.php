@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Models\Book;
 use App\Models\BookBlockGroup;
 use App\Models\BookPage;
+use App\Models\Darklog;
 use App\Models\Event;
 use App\Models\EventSection;
 use App\Models\Fact;
@@ -42,6 +43,7 @@ class AppServiceProvider extends ServiceProvider
         Model::preventLazyLoading(! $this->app->isProduction());
 
         Relation::enforceMorphMap([
+            'darklog' => Darklog::class,
             'book' => Book::class,
             'book_block_group' => BookBlockGroup::class,
             'book_page' => BookPage::class,

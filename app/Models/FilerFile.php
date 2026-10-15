@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[Fillable(['scope_id', 'created_by', 'uploaded_by', 'name', 'description', 'category', 'visibility', 'disk', 'path', 'mime', 'size', 'sha256'])]
 class FilerFile extends DomainModel
 {
-    public const CATEGORIES = ['documentation', 'general', 'task', 'event', 'book', 'project', 'user'];
+    public const CATEGORIES = ['documentation', 'general', 'task', 'event', 'book', 'project', 'user', 'darklog'];
 
     protected $attributes = ['visibility' => 'private'];
 

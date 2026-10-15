@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\BookConversationController;
 use App\Http\Controllers\Api\BookPageController;
 use App\Http\Controllers\Api\BookPageEditingController;
 use App\Http\Controllers\Api\ContractorController;
+use App\Http\Controllers\Api\DarklogController;
 use App\Http\Controllers\Api\EntityLinkController;
 use App\Http\Controllers\Api\FactController;
 use App\Http\Controllers\Api\FilerController;
@@ -35,6 +36,21 @@ Route::prefix('agent')->middleware(['auth:sanctum', 'active', 'agent', 'agent.au
     Route::get('/scopes', [ScopeController::class, 'index']);
 
     Route::prefix('/scopes/{scope}')->middleware('scope.member')->group(function (): void {
+        Route::prefix('darklogs')->middleware(['scope.actor', 'scope.ability:task.view', 'throttle:90,1'])->group(function (): void {
+            Route::get('/', [DarklogController::class, 'index']);
+            Route::get('/options', [DarklogController::class, 'options']);
+            Route::get('/candidates', [DarklogController::class, 'candidates']);
+            Route::post('/', [DarklogController::class, 'store'])->middleware('scope.ability:task.create');
+            Route::get('/{darklog}', [DarklogController::class, 'show'])->whereUlid('darklog');
+            Route::patch('/{darklog}', [DarklogController::class, 'update'])->whereUlid('darklog')->middleware('scope.ability:task.update');
+            Route::delete('/{darklog}', [DarklogController::class, 'destroy'])->whereUlid('darklog')->middleware('scope.ability:task.delete');
+            Route::post('/{darklog}/links', [DarklogController::class, 'storeLink'])->whereUlid('darklog')->middleware('scope.ability:task.update');
+            Route::delete('/{darklog}/links/{link}', [DarklogController::class, 'destroyLink'])->whereUlid(['darklog', 'link'])->middleware('scope.ability:task.update');
+            Route::post('/{darklog}/comments', [DarklogController::class, 'storeComment'])->whereUlid('darklog')->middleware('scope.ability:task.update');
+            Route::delete('/{darklog}/comments/{comment}', [DarklogController::class, 'destroyComment'])->whereUlid(['darklog', 'comment'])->middleware('scope.ability:task.update');
+            Route::post('/{darklog}/kpi', [DarklogController::class, 'storeKpi'])->whereUlid('darklog')->middleware('scope.ability:task.update');
+            Route::delete('/{darklog}/kpi/{allocation}', [DarklogController::class, 'destroyKpi'])->whereUlid(['darklog', 'allocation'])->middleware('scope.ability:task.update');
+        });
         Route::prefix('files')->middleware(['throttle:60,1', 'scope.ability:task.view'])->group(function (): void {
             Route::get('/', [FilerController::class, 'index']);
             Route::get('/targets', [FilerController::class, 'targets'])->middleware('scope.ability:task.update');
