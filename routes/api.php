@@ -36,6 +36,9 @@ Route::prefix('agent')->middleware(['auth:sanctum', 'active', 'agent', 'agent.au
     Route::get('/scopes', [ScopeController::class, 'index']);
 
     Route::prefix('/scopes/{scope}')->middleware('scope.member')->group(function (): void {
+        Route::prefix('diagrams')->middleware(['scope.actor', 'scope.ability:task.view', 'throttle:90,1'])->group(function (): void {
+            require __DIR__.'/diagrams.php';
+        });
         Route::prefix('darklogs')->middleware(['scope.actor', 'scope.ability:task.view', 'throttle:90,1'])->group(function (): void {
             Route::get('/', [DarklogController::class, 'index']);
             Route::get('/options', [DarklogController::class, 'options']);
