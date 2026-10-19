@@ -9,14 +9,15 @@ use App\Models\FilerFile;
 use App\Models\Project;
 use App\Models\Scope;
 use App\Models\Task;
+use App\Models\Thing;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 
 class FilerAccessService
 {
-    public const SUBJECTS = ['task' => Task::class, 'event' => Event::class, 'book' => Book::class, 'project' => Project::class, 'user' => User::class, 'darklog' => Darklog::class];
+    public const SUBJECTS = ['thing' => Thing::class, 'task' => Task::class, 'event' => Event::class, 'book' => Book::class, 'project' => Project::class, 'user' => User::class, 'darklog' => Darklog::class];
 
-    public function __construct(private readonly ContractorAccessService $access) {}
+    public function __construct(private readonly ContractorAccessService $access, private readonly EquipAccessService $equip) {}
 
     public function subject(User $actor, Scope $scope, ?Model $subject, bool $write = false): bool
     {
@@ -29,6 +30,9 @@ class FilerAccessService
         }
         if ($subject->scope_id !== $scope->id) {
             return false;
+        }
+        if ($subject instanceof Thing) {
+            return $this->equip->thing($actor, $scope, $subject, $write ? 'equip.update' : 'equip.view');
         }
         $ability = $write ? 'task.update' : 'task.view';
         if ($subject instanceof Darklog) {

@@ -12,6 +12,9 @@ use App\Http\Controllers\Api\DarklogController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\DepartmentController;
 use App\Http\Controllers\Api\EntityLinkController;
+use App\Http\Controllers\Api\EquipController;
+use App\Http\Controllers\Api\EquipOperationsController;
+use App\Http\Controllers\Api\EquipTaskController;
 use App\Http\Controllers\Api\EventController;
 use App\Http\Controllers\Api\EventConversationController;
 use App\Http\Controllers\Api\EventSectionController;
@@ -55,6 +58,24 @@ Route::prefix('api')->middleware(['spa.request', 'auth', 'active'])->group(funct
     Route::post('/scopes', [ScopeController::class, 'store']);
 
     Route::prefix('/scopes/{scope}')->middleware('scope.member')->group(function (): void {
+        Route::prefix('equip')->middleware(['scope.actor', 'scope.ability:equip.view', 'throttle:90,1'])->group(function (): void {
+            Route::get('/options', [EquipController::class, 'options']);
+            Route::get('/suppliers', [EquipOperationsController::class, 'suppliers']);
+            Route::post('/suppliers', [EquipOperationsController::class, 'storeSupplier']);
+            Route::get('/{thing}/operations', [EquipOperationsController::class, 'show'])->whereUlid('thing');
+            Route::post('/{thing}/operations', [EquipOperationsController::class, 'store'])->whereUlid('thing');
+            Route::get('/{thing}/assignments', [EquipOperationsController::class, 'assignments'])->whereUlid('thing');
+            Route::get('/{thing}/compositions', [EquipOperationsController::class, 'compositions'])->whereUlid('thing');
+            Route::get('/', [EquipController::class, 'index']);
+            Route::post('/', [EquipController::class, 'store'])->middleware('scope.ability:equip.create');
+            Route::post('/types', [EquipController::class, 'storeType'])->middleware('scope.ability:equip.types');
+            Route::get('/{thing}', [EquipController::class, 'show'])->whereUlid('thing');
+            Route::patch('/{thing}', [EquipController::class, 'update'])->whereUlid('thing')->middleware('scope.ability:equip.update');
+            Route::get('/{thing}/tasks', [EquipTaskController::class, 'index'])->whereUlid('thing');
+            Route::post('/{thing}/tasks', [EquipTaskController::class, 'store'])->whereUlid('thing')->middleware('scope.ability:equip.update');
+            Route::delete('/{thing}/tasks/{task}', [EquipTaskController::class, 'destroy'])->whereUlid(['thing', 'task'])->middleware('scope.ability:equip.update');
+            Route::get('/{thing}/history', [EquipController::class, 'history'])->whereUlid('thing');
+        });
         Route::prefix('diagrams')->middleware(['scope.actor', 'scope.ability:task.view', 'throttle:90,1'])->group(function (): void {
             require __DIR__.'/diagrams.php';
         });

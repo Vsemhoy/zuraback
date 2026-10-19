@@ -169,7 +169,10 @@ class DiagramController extends Controller
         $this->assertManage($request, $scope, $diagram);
         $data = $request->validate(['subject_type' => ['required', Rule::in(array_keys(DiagramAccessService::SUBJECTS))], 'subject_id' => ['required', 'ulid']]);
         $this->assertWritableTarget($request, $scope, $data['subject_type'], $data['subject_id']);
-        $diagram->attachments()->firstOrCreate($data, ['created_by' => $this->context->actor($request)->id]);
+        $attachment = $diagram->attachments()->firstOrCreate($data, ['created_by' => $this->context->actor($request)->id]);
+        if ($attachment->wasRecentlyCreated) {
+            $this->auditEquipment($request, $scope, $attachment, 'diagram_linked');
+        }
 
         return $this->show($request, $scope, $diagram);
     }
@@ -180,8 +183,18 @@ class DiagramController extends Controller
         abort_unless($attachment->diagram_id === $diagram->id, 404);
         $this->assertWritableTarget($request, $scope, $attachment->subject_type, $attachment->subject_id);
         $attachment->delete();
+        $this->auditEquipment($request, $scope, $attachment, 'diagram_unlinked');
 
         return response()->noContent();
+    }
+
+    private function auditEquipment(Request $request, Scope $scope, DiagramAttachment $attachment, string $action): void
+    {
+        if ($attachment->subject_type === 'thing') {
+            ActivityLog::create(['scope_id' => $scope->id, 'actor_id' => $this->context->actor($request)->id,
+                'subject_type' => 'thing', 'subject_id' => $attachment->subject_id, 'action' => 'equip.'.$action,
+                'after' => ['diagram_id' => $attachment->diagram_id], 'context' => $this->context->auditMetadata($request)]);
+        }
     }
 
     private function assertWritableTarget(Request $request, Scope $scope, string $type, string $id): void

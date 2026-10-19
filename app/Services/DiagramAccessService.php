@@ -6,19 +6,25 @@ use App\Models\Diagram;
 use App\Models\PlanItem;
 use App\Models\Project;
 use App\Models\Scope;
+use App\Models\Thing;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
 class DiagramAccessService
 {
-    public const SUBJECTS = [...DarklogLinkService::TARGETS, 'user' => User::class];
+    public const SUBJECTS = [...DarklogLinkService::TARGETS, 'user' => User::class, 'thing' => Thing::class];
 
     public function __construct(private readonly ContractorAccessService $access, private readonly DarklogLinkService $targets,
-        private readonly FilerAccessService $files, private readonly PlanItemService $plans) {}
+        private readonly FilerAccessService $files, private readonly PlanItemService $plans, private readonly EquipAccessService $equip) {}
 
     public function target(User $actor, Scope $scope, string $type, string $id): ?Model
     {
+        if ($type === 'thing') {
+            $thing = Thing::find($id);
+
+            return $thing && $this->equip->thing($actor, $scope, $thing) ? $thing : null;
+        }
         if ($type === 'user') {
             $person = User::query()->find($id);
 
@@ -35,12 +41,21 @@ class DiagramAccessService
 
     public function describe(string $type, Model $target): array
     {
+        if ($target instanceof Thing) {
+            return ['id' => $target->id, 'type' => 'thing', 'title' => $target->name, 'code' => $target->inventory_number, 'href' => '/equip?item='.$target->id];
+        }
+
         return $target instanceof User ? ['id' => $target->id, 'type' => 'user', 'title' => $target->name, 'code' => null, 'href' => '/contractors']
             : $this->targets->describe($type, $target);
     }
 
     public function candidates(User $actor, Scope $scope, string $type, string $term): array
     {
+        if ($type === 'thing') {
+            return $this->equip->constrain(Thing::query(), $actor, $scope)
+                ->where(fn (Builder $q) => $q->where('name', 'like', '%'.$term.'%')->orWhere('inventory_number', 'like', '%'.$term.'%'))
+                ->orderBy('name')->orderBy('id')->limit(30)->get()->map(fn (Thing $thing): array => $this->describe('thing', $thing))->all();
+        }
         if ($type === 'user') {
             return User::query()->where(fn (Builder $q) => $q->whereKey($scope->owner_id)
                 ->orWhereIn('id', $scope->members()->where('is_active', true)->select('user_id')))

@@ -28,13 +28,22 @@ class ContractorAccessService
         'project.delete',
         'report.view',
         'report.write',
+        'equip.view',
+        'equip.create',
+        'equip.update',
+        'equip.assign',
+        'equip.compose',
+        'equip.state',
+        'equip.ownership',
+        'equip.types',
+        'equip.access_all',
     ];
 
     /** @var array<string, array<int, string>> */
     private const ROLE_ABILITIES = [
         'admin' => self::ABILITIES,
-        'member' => ['agent.manage_own', 'task.view', 'task.create', 'task.update', 'task.assign', 'report.view', 'report.write'],
-        'observer' => ['task.view', 'report.view'],
+        'member' => ['equip.view', 'agent.manage_own', 'task.view', 'task.create', 'task.update', 'task.assign', 'report.view', 'report.write'],
+        'observer' => ['equip.view', 'task.view', 'report.view'],
     ];
 
     public function allows(User $user, Scope $scope, string $ability, ?Project $project = null): bool

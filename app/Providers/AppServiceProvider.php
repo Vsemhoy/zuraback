@@ -14,6 +14,7 @@ use App\Models\Kpi;
 use App\Models\Project;
 use App\Models\Task;
 use App\Models\TaskChecklistItem;
+use App\Models\Thing;
 use App\Models\User;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Model;
@@ -44,6 +45,7 @@ class AppServiceProvider extends ServiceProvider
         Model::preventLazyLoading(! $this->app->isProduction());
 
         Relation::enforceMorphMap([
+            'thing' => Thing::class,
             'diagram' => Diagram::class,
             'darklog' => Darklog::class,
             'book' => Book::class,

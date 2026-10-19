@@ -10,6 +10,7 @@ use App\Models\PlanItem;
 use App\Models\Project;
 use App\Models\Scope;
 use App\Models\Task;
+use App\Models\Thing;
 use App\Models\User;
 use App\Services\ContractorAccessService;
 use App\Services\ContractorContext;
@@ -66,6 +67,7 @@ class DepartmentController extends Controller
         abort_unless($department->scope_id === $scope->id, 404);
         abort_if($department->members()->exists() || Task::withTrashed()->where('department_id', $department->id)->exists() || Project::withTrashed()->where('department_id', $department->id)->exists() || PlanItem::withTrashed()->where('department_id', $department->id)->exists() || DB::table('department_project')->where('department_id', $department->id)->exists(), 422, 'Сначала перенесите сотрудников, проекты, задачи и планы отдела.');
         abort_if(Darklog::withTrashed()->where('department_id', $department->id)->exists(), 422, 'Сначала перенесите дарклоги отдела.');
+        abort_if(Thing::where('department_id', $department->id)->exists(), 422, 'Сначала перенесите оборудование отдела.');
         $department->delete();
 
         return response()->noContent();

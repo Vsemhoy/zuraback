@@ -86,7 +86,7 @@ class FilerController extends Controller
         } else {
             $query->where('scope_id', $scope->id);
         }
-        $column = $data['type'] === 'user' ? 'name' : 'title';
+        $column = in_array($data['type'], ['user', 'thing'], true) ? 'name' : 'title';
         if (! empty($data['q'])) {
             $query->where($column, 'like', '%'.$data['q'].'%');
         }

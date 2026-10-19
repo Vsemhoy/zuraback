@@ -27,7 +27,7 @@ class EntityLinkController extends Controller
      */
     public function index(Request $request, Scope $scope): AnonymousResourceCollection
     {
-        $query = $scope->entityLinks()->with(['source', 'target'])->latest();
+        $query = $scope->entityLinks()->where('source_type', '!=', 'thing')->where('target_type', '!=', 'thing')->with(['source', 'target'])->latest();
         if ($request->filled(['subject_type', 'subject_id'])) {
             $type = (string) $request->query('subject_type');
             $id = (string) $request->query('subject_id');
@@ -71,7 +71,7 @@ class EntityLinkController extends Controller
 
     public function destroy(Request $request, Scope $scope, EntityLink $link): Response
     {
-        abort_unless($link->scope_id === $scope->id, 404);
+        abort_unless($link->scope_id === $scope->id && $link->source_type !== 'thing' && $link->target_type !== 'thing', 404);
         foreach ([$link->source, $link->target] as $entity) {
             if ($entity instanceof Task) {
                 abort_unless($this->access->canAccessTask($this->context->actor($request), $scope, $entity, 'task.update'), 404);
