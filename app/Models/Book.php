@@ -7,9 +7,10 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-#[Fillable(['scope_id', 'space_id', 'project_id', 'created_by', 'title', 'slug', 'description', 'structure_mode', 'version_depth', 'visibility', 'comments_enabled', 'cover_color', 'cover_svg_url', 'cover_svg_text', 'export_settings', 'sort_order', 'is_archived', 'meta'])]
+#[Fillable(['scope_id', 'kind', 'space_id', 'project_id', 'created_by', 'title', 'slug', 'description', 'structure_mode', 'version_depth', 'visibility', 'comments_enabled', 'cover_color', 'cover_svg_url', 'cover_svg_text', 'export_settings', 'sort_order', 'is_archived', 'meta'])]
 class Book extends DomainModel
 {
     use HasEntityLinks, SoftDeletes;
@@ -37,6 +38,11 @@ class Book extends DomainModel
     public function pages(): HasMany
     {
         return $this->hasMany(BookPage::class);
+    }
+
+    public function page(): HasOne
+    {
+        return $this->hasOne(BookPage::class);
     }
 
     public function starredBy(): BelongsToMany

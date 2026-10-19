@@ -29,6 +29,7 @@ class BookPageController extends Controller
     public function store(StoreBookPageRequest $request, Scope $scope, Book $book): BookPageResource
     {
         $this->assertBookInScope($scope, $book);
+        abort_unless($book->kind === 'book', 404);
         $data = $request->validated();
         if (isset($data['parent_id'])) {
             abort_unless($book->pages()->whereKey($data['parent_id'])->exists(), 422, 'Parent page belongs to another book.');
@@ -51,12 +52,20 @@ class BookPageController extends Controller
 
     public function update(UpdateBookPageRequest $request, Scope $scope, Book $book, BookPage $bookPage): BookPageResource
     {
-        $this->assertBookInScope($scope, $book); abort_unless($bookPage->book_id === $book->id, 404);
+        $this->assertBookInScope($scope, $book);
+        abort_unless($bookPage->book_id === $book->id, 404);
         abort_unless($bookPage->editing_by === $request->user()->id, 423, 'Сначала захватите страницу для редактирования.');
         $data = $request->validated();
         abort_if(($data['parent_id'] ?? null) === $bookPage->id, 422, 'A page cannot be its own parent.');
-        if (isset($data['parent_id'])) abort_unless($book->pages()->whereKey($data['parent_id'])->exists(), 422, 'Parent page belongs to another book.');
-        $bookPage->update($data); return new BookPageResource($bookPage->fresh()->load(['editor:id,name,username', 'groups.masterBlock'])->loadCount('versions'));
+        if (isset($data['parent_id'])) {
+            abort_unless($book->pages()->whereKey($data['parent_id'])->exists(), 422, 'Parent page belongs to another book.');
+        }
+        $bookPage->update($data);
+        if ($book->kind === 'lightbook') {
+            $book->update(array_intersect_key($data, array_flip(['title', 'visibility'])));
+        }
+
+        return new BookPageResource($bookPage->fresh()->load(['editor:id,name,username', 'groups.masterBlock'])->loadCount('versions'));
     }
 
     private function assertBookInScope(Scope $scope, Book $book): void

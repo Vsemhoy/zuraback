@@ -100,6 +100,9 @@ Route::prefix('agent')->middleware(['auth:sanctum', 'active', 'agent', 'agent.au
         Route::post('/links', [EntityLinkController::class, 'store'])->middleware('scope.ability:task.update');
         Route::post('/imports/tasker', [AgentTaskerImportController::class, 'store'])->middleware(['scope.ability:task.create', 'scope.ability:task.update']);
         Route::post('/imports/booker', [AgentBookerImportController::class, 'store'])->middleware(['scope.ability:book.create', 'scope.ability:book.update']);
+        Route::prefix('lightbooks')->middleware(['scope.actor', 'book.access:book.view', 'throttle:90,1'])->group(function (): void {
+            require __DIR__.'/lightbooks.php';
+        });
         Route::get('/books', [BookController::class, 'index'])->middleware('book.access:book.view');
         Route::post('/books', [BookController::class, 'store'])->middleware('book.access:book.create');
         Route::get('/books/{book}', [BookController::class, 'show'])->middleware('book.access:book.view');

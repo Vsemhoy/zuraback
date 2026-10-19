@@ -215,6 +215,9 @@ Route::prefix('api')->middleware(['spa.request', 'auth', 'active'])->group(funct
         Route::post('/lore/{loreEntry}/revisions', [LoreController::class, 'revise'])->middleware(['scope.actor', 'scope.ability:task.update']);
         Route::patch('/lore/{loreEntry}/revisions/{loreRevision}', [LoreController::class, 'updateRevision'])->middleware(['scope.actor', 'scope.ability:task.update']);
         Route::patch('/lore/{loreEntry}/star', [LoreController::class, 'star'])->middleware(['scope.actor', 'scope.ability:task.view']);
+        Route::prefix('lightbooks')->middleware(['scope.actor', 'book.access:book.view', 'throttle:90,1'])->group(function (): void {
+            require __DIR__.'/lightbooks.php';
+        });
         Route::get('/books', [BookController::class, 'index'])->middleware(['scope.actor', 'book.access:book.view']);
         Route::get('/book-comments/recent', [BookConversationController::class, 'recent'])->middleware(['scope.actor', 'book.access:book.view']);
         Route::get('/book-spaces', [BookSpaceController::class, 'index'])->middleware(['scope.actor', 'book.access:book.view']);

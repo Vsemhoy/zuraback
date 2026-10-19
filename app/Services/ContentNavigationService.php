@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Book;
 use App\Models\ContentNavigationLink;
 use App\Models\Diagram;
 use App\Models\FilerFile;
@@ -15,7 +16,7 @@ use Illuminate\Database\Eloquent\Relations\Relation;
 
 class ContentNavigationService
 {
-    public const TYPES = ['diagram' => Diagram::class, 'file' => FilerFile::class, 'lore' => LoreEntry::class, 'task' => Task::class];
+    public const TYPES = ['diagram' => Diagram::class, 'file' => FilerFile::class, 'lore' => LoreEntry::class, 'task' => Task::class, 'lightbook' => Book::class];
 
     public function __construct(private readonly DiagramAccessService $diagrams, private readonly FilerAccessService $files,
         private readonly ContractorAccessService $access, private readonly DarklogLinkService $targets) {}
@@ -24,7 +25,11 @@ class ContentNavigationService
     {
         $class = self::TYPES[$type] ?? null;
         abort_unless($class, 404);
-        $record = $class::query()->where('scope_id', $scope->id)->findOrFail($id);
+        $query = $class::query()->where('scope_id', $scope->id);
+        if ($type === 'lightbook') {
+            $query->where('kind', 'lightbook');
+        }
+        $record = $query->findOrFail($id);
         abort_unless($this->can($actor, $scope, $record, $write), 404);
 
         return $record;
@@ -43,6 +48,12 @@ class ContentNavigationService
         }
         if ($record instanceof Task) {
             return $this->files->subject($actor, $scope, $record, $write);
+        }
+        if ($record instanceof Book && $record->kind === 'lightbook') {
+            $record->loadMissing('project');
+
+            return $this->access->canAccessBook($actor, $scope, $record)
+                && (! $write || $this->access->allows($actor, $scope, 'book.update', $record->project));
         }
 
         return $record instanceof LoreEntry && $this->access->allows($actor, $scope, $write ? 'task.update' : 'task.view') && $this->targets->canView($actor, $scope, $record)
@@ -67,6 +78,7 @@ class ContentNavigationService
             'file' => $record->only(['id', 'name', 'description', 'mime', 'size']),
             'lore' => ['id' => $record->id, 'code' => $record->code, 'current_revision' => $record->revisions->first()?->only(['title', 'content', 'reason', 'version', 'effective_from'])],
             'task' => $record->only(['id', 'task_key', 'title', 'description', 'result', 'agent_notes', 'status', 'priority', 'due_at', 'completed_at']),
+            'lightbook' => $this->lightbookDocument($record),
         };
     }
 
@@ -80,6 +92,9 @@ class ContentNavigationService
                 continue;
             }
             $query = $class::query()->select($this->metadataColumns($targetType))->where('scope_id', $scope->id)->whereIn('id', $group->pluck('target_id'));
+            if ($targetType === 'lightbook') {
+                $query->where('kind', 'lightbook');
+            }
             if ($targetType === 'file') {
                 $query->with('attachments.subject');
             }
@@ -101,6 +116,9 @@ class ContentNavigationService
     {
         $class = self::TYPES[$type];
         $query = $class::query()->select($this->metadataColumns($type))->where('scope_id', $scope->id)->orderByDesc('id');
+        if ($type === 'lightbook') {
+            $query->where('kind', 'lightbook');
+        }
         if ($type === 'file') {
             $query->with('attachments.subject');
         }
@@ -132,6 +150,23 @@ class ContentNavigationService
         return ['data' => array_slice($items, 0, 30), 'meta' => ['page' => $page, 'has_more' => count($items) > 30]];
     }
 
+    private function lightbookDocument(Book $lightbook): array
+    {
+        $lightbook->loadMissing(['page.groups.masterBlock']);
+        $page = $lightbook->page;
+
+        return [
+            ...$lightbook->only(['id', 'title', 'description', 'visibility', 'updated_at']),
+            'page' => $page ? [
+                ...$page->only(['id', 'title', 'updated_at']),
+                'groups' => $page->groups->sortBy('sort_order')->values()->map(fn ($group): array => [
+                    ...$group->only(['id', 'type', 'role', 'visibility', 'sort_order']),
+                    'master_block' => $group->masterBlock?->only(['id', 'version_number', 'title', 'content', 'payload', 'status', 'published_at']),
+                ])->all(),
+            ] : null,
+        ];
+    }
+
     private function metadataColumns(string $type): array
     {
         return match ($type) {
@@ -139,6 +174,7 @@ class ContentNavigationService
             'file' => ['id', 'scope_id', 'created_by', 'name', 'visibility'],
             'lore' => ['id', 'scope_id', 'created_by', 'code', 'project_id', 'visibility'],
             'task' => ['id', 'scope_id', 'created_by', 'title', 'task_key', 'project_id', 'department_id', 'assignee_id', 'status'],
+            'lightbook' => ['id', 'scope_id', 'created_by', 'title', 'project_id', 'visibility', 'kind'],
         };
     }
 }

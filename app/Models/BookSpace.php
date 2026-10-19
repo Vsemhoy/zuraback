@@ -24,7 +24,7 @@ class BookSpace extends DomainModel
 
     public function books(): HasMany
     {
-        return $this->hasMany(Book::class, 'space_id');
+        return $this->hasMany(Book::class, 'space_id')->where('kind', 'book');
     }
 
     protected function casts(): array
