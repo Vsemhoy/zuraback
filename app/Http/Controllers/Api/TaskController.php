@@ -63,21 +63,23 @@ class TaskController extends Controller
         $data = $request->validated();
         $this->normalizeAgentDelegation($data);
         $actor = $this->context->actor($request);
+        if (! empty($data['parent_id'])) {
+            abort_unless($scope->tasks()->whereKey($data['parent_id'])->exists(), 422, 'Invalid parent_id for this scope.');
+            $parent = $scope->tasks()->with('project')->findOrFail($data['parent_id']);
+            abort_unless($this->access->canAccessTask($actor, $scope, $parent), 403, 'The parent task is outside the contractor access boundary.');
+            $parent->assertEditable();
+            $data += $parent->only(['project_id', 'department_id', 'assignee_id']);
+        }
         if (! array_key_exists('department_id', $data) && ! empty($data['project_id'])) {
             $data['department_id'] = $scope->projects()->find($data['project_id'])?->department_id;
         }
-        if (empty($data['assignee_id']) && empty($data['department_id']) && $actor->is_executor) {
+        if (empty($data['parent_id']) && empty($data['assignee_id']) && empty($data['department_id']) && $actor->is_executor) {
             $data['assignee_id'] = $actor->id;
         }
         $this->assertReferencesBelongToScope($scope, $data, $actor);
         abort_if(! isset($data['project_id']) && empty($data['department_id']) && ! $this->access->canAccessUnprojected($actor, $scope), 403, 'Unprojected tasks are outside the contractor access boundary.');
         $this->assertCanAssign($scope, $data, $actor);
         $this->assertAssignedUsersCanAccess($scope, $data, $data['project_id'] ?? null);
-        if (! empty($data['parent_id'])) {
-            $parent = $scope->tasks()->findOrFail($data['parent_id']);
-            $parent->assertEditable();
-        }
-
         $data = $this->completion->apply(new Task, $data, $actor);
         abort_if(($data['status'] ?? null) === 'blocked', 422, 'Create the task first, then use the blocker endpoint.');
         $task = DB::transaction(function () use ($request, $scope, $keys, $data): Task {

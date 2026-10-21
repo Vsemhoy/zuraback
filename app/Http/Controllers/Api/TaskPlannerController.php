@@ -47,17 +47,17 @@ class TaskPlannerController extends Controller
 
         $query = $this->taskQuery($request, $scope, $data);
         $tasks = (clone $query)->whereBetween('due_at', [$from, $to])
-            ->with(['department:id,name,color', 'project:id,title,key,color', 'assignee:id,name,type', 'delegatedAgent:id,name,type'])
+            ->with(['department:id,name,color,code,icon_svg', 'project:id,title,key,color', 'assignee:id,name,type', 'delegatedAgent:id,name,type'])
             ->orderBy('due_at')->orderBy('sort_order')->get();
         $unscheduled = (clone $query)->whereNull('due_at')
             ->whereNotIn('status', ['done', 'cancelled'])
-            ->with(['department:id,name,color', 'project:id,title,key,color', 'assignee:id,name,type', 'delegatedAgent:id,name,type'])
+            ->with(['department:id,name,color,code,icon_svg', 'project:id,title,key,color', 'assignee:id,name,type', 'delegatedAgent:id,name,type'])
             ->orderByDesc('updated_at')->limit(200)->get();
         $accessibleIds = (clone $query)->select('tasks.id');
         $tails = TaskPlannerTail::query()->where('scope_id', $scope->id)
             ->whereBetween('planned_on', [$data['from'], $data['to']])
             ->whereIn('task_id', $accessibleIds)
-            ->with(['task.department:id,name,color', 'task.project:id,title,key,color', 'task.assignee:id,name,type'])
+            ->with(['task.department:id,name,color,code,icon_svg', 'task.project:id,title,key,color', 'task.assignee:id,name,type'])
             ->orderBy('planned_on')->get();
 
         return response()->json([
@@ -87,7 +87,7 @@ class TaskPlannerController extends Controller
             $this->log($request, $scope, $task, 'task.planner_tail_created', null, ['tail_id' => $tail->id, 'planned_on' => $tail->planned_on->format('Y-m-d')]);
         }
 
-        return response()->json(['data' => ['id' => $tail->id, 'planned_on' => $tail->planned_on->format('Y-m-d'), 'task' => (new TaskResource($task->load(['department:id,name,color', 'project:id,title,key,color', 'assignee:id,name,type'])))->resolve($request)]], $tail->wasRecentlyCreated ? 201 : 200);
+        return response()->json(['data' => ['id' => $tail->id, 'planned_on' => $tail->planned_on->format('Y-m-d'), 'task' => (new TaskResource($task->load(['department:id,name,color,code,icon_svg', 'project:id,title,key,color', 'assignee:id,name,type'])))->resolve($request)]], $tail->wasRecentlyCreated ? 201 : 200);
     }
 
     public function moveTail(Request $request, Scope $scope, TaskPlannerTail $tail): JsonResponse
@@ -157,7 +157,7 @@ class TaskPlannerController extends Controller
         $this->log($request, $scope, $task, 'task.planner_copied', ['task_id' => $task->id, 'due_at' => $task->due_at], ['task_id' => $copy->id, 'task_key' => $copy->task_key, 'due_at' => $copy->due_at]);
         $this->log($request, $scope, $copy, 'task.planner_created_from_copy', ['source_task_id' => $task->id, 'source_task_key' => $task->task_key], ['due_at' => $copy->due_at]);
 
-        return response()->json(['data' => (new TaskResource($copy->load(['department:id,name,color', 'project:id,title,key,color', 'assignee:id,name,type'])))->resolve($request)], 201);
+        return response()->json(['data' => (new TaskResource($copy->load(['department:id,name,color,code,icon_svg', 'project:id,title,key,color', 'assignee:id,name,type'])))->resolve($request)], 201);
     }
 
     public function bulk(Request $request, Scope $scope): JsonResponse

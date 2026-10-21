@@ -45,7 +45,7 @@ class DiagramController extends Controller
             abort_unless($this->access->target($actor, $scope, $data['subject_type'], $data['subject_id']), 404);
             $query->whereHas('attachments', fn ($q) => $q->where('subject_type', $data['subject_type'])->where('subject_id', $data['subject_id']));
         }
-        $page = $query->select(['id', 'scope_id', 'project_id', 'created_by', 'title', 'description', 'visibility', 'revision', 'created_at', 'updated_at'])
+        $page = $query->select(['id', 'scope_id', 'project_id', 'created_by', 'title', 'description', 'visibility', 'allow_member_editing', 'revision', 'created_at', 'updated_at'])
             ->latest('updated_at')->orderByDesc('id')->simplePaginate(30);
         $abilities = ['update' => $this->contractors->allows($actor, $scope, 'task.update'), 'delete' => $this->contractors->allows($actor, $scope, 'task.delete')];
 
@@ -89,7 +89,10 @@ class DiagramController extends Controller
         $data = $request->validated();
         $diagram = DB::transaction(function () use ($request, $scope, $diagram, $data): Diagram {
             $current = Diagram::query()->lockForUpdate()->findOrFail($diagram->id);
-            $this->assertManage($request, $scope, $current);
+            abort_unless($this->access->canEdit($this->context->actor($request), $scope, $current), 404);
+            if (array_intersect(['project_id', 'visibility', 'allow_member_editing'], array_keys($data)) !== []) {
+                $this->assertManage($request, $scope, $current);
+            }
             abort_unless($current->revision === $data['revision'], 409, 'Схема уже изменена в другой вкладке. Сохраните свой XML и откройте актуальную версию.');
             if (array_key_exists('project_id', $data)) {
                 abort_unless($this->access->projectAllowed($this->context->actor($request), $scope, $data['project_id']), 403);
@@ -100,7 +103,7 @@ class DiagramController extends Controller
             }
             $current->fill($data);
             if ($current->isDirty()) {
-                $before = ['revision' => $current->revision, 'title' => $current->getOriginal('title')];
+                $before = ['revision' => $current->revision, 'title' => $current->getOriginal('title'), 'allow_member_editing' => $current->getOriginal('allow_member_editing')];
                 $current->revision++;
                 $current->save();
                 $this->snapshot($current, $this->context->actor($request)->id);
@@ -229,20 +232,21 @@ class DiagramController extends Controller
     private function audit(Request $request, Scope $scope, Diagram $diagram, string $action, array $before = []): void
     {
         ActivityLog::create(['scope_id' => $scope->id, 'actor_id' => $this->context->actor($request)->id, 'subject_type' => 'diagram', 'subject_id' => $diagram->id,
-            'action' => 'diagram.'.$action, 'before' => $before, 'after' => ['revision' => $diagram->revision, 'title' => $diagram->title], 'context' => $this->context->auditMetadata($request)]);
+            'action' => 'diagram.'.$action, 'before' => $before, 'after' => ['revision' => $diagram->revision, 'title' => $diagram->title, 'allow_member_editing' => $diagram->allow_member_editing], 'context' => $this->context->auditMetadata($request)]);
     }
 
     private function present(Request $request, Scope $scope, Diagram $diagram, bool $full = false, ?array $abilities = null): array
     {
         $actor = $this->context->actor($request);
         $diagram->loadMissing(['creator', 'project']);
-        $data = $diagram->only(['id', 'scope_id', 'project_id', 'title', 'description', 'visibility', 'revision', 'created_at', 'updated_at']);
+        $data = $diagram->only(['id', 'scope_id', 'project_id', 'title', 'description', 'visibility', 'allow_member_editing', 'revision', 'created_at', 'updated_at']);
         $data['creator'] = $diagram->creator?->only(['id', 'name']);
         $data['project'] = $diagram->project?->only(['id', 'title', 'key']);
         $manager = $diagram->created_by === $actor->id || $scope->owner_id === $actor->id;
         $data['can_manage'] = $manager && ($abilities['update'] ?? $this->contractors->allows($actor, $scope, 'task.update'));
         $data['can_delete'] = $manager && ($abilities['delete'] ?? $this->contractors->allows($actor, $scope, 'task.delete'));
         if ($full) {
+            $data['can_edit'] = $this->access->canEdit($actor, $scope, $diagram);
             $data['xml'] = $diagram->xml;
             $data['preview_svg'] = $diagram->preview_svg;
             $data['attachments'] = $diagram->attachments()->get()->map(function (DiagramAttachment $link) use ($actor, $scope): ?array {

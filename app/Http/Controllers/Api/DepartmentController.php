@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\DepartmentRequest;
 use App\Models\ActivityLog;
 use App\Models\Darklog;
 use App\Models\Department;
@@ -18,7 +19,6 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\Rule;
 
 class DepartmentController extends Controller
 {
@@ -30,21 +30,21 @@ class DepartmentController extends Controller
             'departments' => Department::where('scope_id', $scope->id)->with(['members' => fn ($q) => $q->where('is_active', true)->select(['id', 'department_id', 'user_id'])->with('user:id,name')])->orderBy('name')->get()]);
     }
 
-    public function store(Request $request, Scope $scope): JsonResource
+    public function store(DepartmentRequest $request, Scope $scope): JsonResource
     {
-        $data = $request->validate(['name' => ['required', 'string', 'max:120', Rule::unique('departments')->where('scope_id', $scope->id)], 'description' => ['nullable', 'string', 'max:2000'], 'color' => ['sometimes', 'required', Rule::in(Department::COLORS)]]);
+        $data = $request->validated();
 
         return DB::transaction(function () use ($request, $scope, $data): JsonResource {
-            $department = Department::create(['scope_id' => $scope->id, ...$data]);
+            $department = Department::create(['scope_id' => $scope->id, ...collect($data)->only(['name', 'code', 'description', 'color', 'icon_svg'])->all()]);
 
             return $this->update($request, $scope, $department);
         });
     }
 
-    public function update(Request $request, Scope $scope, Department $department): JsonResource
+    public function update(DepartmentRequest $request, Scope $scope, Department $department): JsonResource
     {
         abort_unless($department->scope_id === $scope->id, 404);
-        $data = $request->validate(['name' => ['required', 'string', 'max:120', Rule::unique('departments')->where('scope_id', $scope->id)->ignore($department->id)], 'description' => ['nullable', 'string', 'max:2000'], 'color' => ['sometimes', 'required', Rule::in(Department::COLORS)], 'user_ids' => ['sometimes', 'array'], 'user_ids.*' => ['ulid', 'distinct']]);
+        $data = $request->validated();
         DB::transaction(function () use ($scope, $department, $data): void {
             $scope->newQuery()->whereKey($scope->id)->lockForUpdate()->firstOrFail();
             if (isset($data['user_ids'])) {
@@ -56,7 +56,7 @@ class DepartmentController extends Controller
                     $scope->members()->updateOrCreate(['user_id' => $id], ['department_id' => $department->id]);
                 }
             }
-            $department->update(collect($data)->only(['name', 'description', 'color'])->all());
+            $department->update(collect($data)->only(['name', 'code', 'description', 'color', 'icon_svg'])->all());
         });
 
         return new JsonResource($department->fresh());

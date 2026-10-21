@@ -96,8 +96,8 @@ class TaskChecklistItemController extends Controller
             $project = $task->project_id ? Project::query()->findOrFail($task->project_id) : null;
             $identity = $keys->reserve($scope, $project);
             $subtask = $scope->tasks()->create([
-                ...$identity, 'project_id' => $task->project_id, 'parent_id' => $task->id,
-                'created_by' => $this->context->actor($request)->id, 'assignee_id' => $lockedItem->assignee_id,
+                ...$identity, 'project_id' => $task->project_id, 'department_id' => $task->department_id, 'parent_id' => $task->id,
+                'created_by' => $this->context->actor($request)->id, 'assignee_id' => $lockedItem->assignee_id ?? $task->assignee_id,
                 'title' => $lockedItem->title, 'due_at' => $lockedItem->due_at ?? ($lockedItem->completed_at ? today()->setTime(12, 0) : null),
                 'status' => $lockedItem->completed_at ? 'done' : 'todo', 'completed_at' => $lockedItem->completed_at,
             ]);
@@ -115,7 +115,7 @@ class TaskChecklistItemController extends Controller
             return $subtask;
         });
 
-        return new TaskResource($subtask->load(['project:id,title,key', 'assignee:id,name']));
+        return new TaskResource($subtask->load(['department:id,name,color', 'project:id,title,key', 'assignee:id,name']));
     }
 
     private function assertTask(Request $request, Scope $scope, Task $task, string $ability = 'task.view'): void

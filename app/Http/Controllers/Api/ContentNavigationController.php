@@ -10,6 +10,7 @@ use App\Models\Diagram;
 use App\Models\Scope;
 use App\Services\ContentNavigationService;
 use App\Services\ContractorContext;
+use App\Services\DiagramAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -18,7 +19,7 @@ use Illuminate\Validation\Rule;
 
 class ContentNavigationController extends Controller
 {
-    public function __construct(private readonly ContentNavigationService $navigation, private readonly ContractorContext $context) {}
+    public function __construct(private readonly ContentNavigationService $navigation, private readonly ContractorContext $context, private readonly DiagramAccessService $diagrams) {}
 
     public function show(Request $request, Scope $scope, string $type, string $id): JsonResponse
     {
@@ -26,7 +27,9 @@ class ContentNavigationController extends Controller
         $record = $this->navigation->resolve($actor, $scope, $type, $id);
 
         return response()->json(['data' => [...$this->navigation->describe($type, $record), 'document' => $this->navigation->document($type, $record),
-            'can_manage' => $this->navigation->can($actor, $scope, $record, true), 'links' => $this->navigation->links($actor, $scope, $type, $id)]]);
+            'can_manage' => $this->navigation->can($actor, $scope, $record, true),
+            'can_edit' => $record instanceof Diagram && $this->diagrams->canEdit($actor, $scope, $record),
+            'links' => $this->navigation->links($actor, $scope, $type, $id)]]);
     }
 
     public function candidates(Request $request, Scope $scope): JsonResponse

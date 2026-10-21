@@ -11,6 +11,7 @@ class EquipTypeSeeder extends Seeder
     {
         $types = [
             'computer' => ['Компьютер', [['key' => 'cpu', 'label' => 'Процессор', 'type' => 'text'], ['key' => 'ram', 'label' => 'Оперативная память', 'type' => 'number', 'unit' => 'ГБ'], ['key' => 'storage', 'label' => 'Накопитель', 'type' => 'text']]],
+            'workplace' => ['Рабочее место', []],
             'laptop' => ['Ноутбук', [['key' => 'cpu', 'label' => 'Процессор', 'type' => 'text'], ['key' => 'ram', 'label' => 'Оперативная память', 'type' => 'number', 'unit' => 'ГБ']]],
             'monitor' => ['Монитор', [['key' => 'diagonal', 'label' => 'Диагональ', 'type' => 'number', 'unit' => 'дюйм'], ['key' => 'resolution', 'label' => 'Разрешение', 'type' => 'text']]],
             'component' => ['Комплектующее', []],

@@ -13,6 +13,7 @@ class DiagramRequest extends WorkspaceRequest
             'title' => [$this->isMethod('POST') ? 'required' : 'sometimes', 'required', 'string', 'max:255'],
             'description' => ['sometimes', 'nullable', 'string', 'max:10000'],
             'visibility' => ['sometimes', Rule::in(['private', 'scope'])],
+            'allow_member_editing' => ['sometimes', 'boolean'],
             'project_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('projects', 'id')->where('scope_id', $this->route('scope')->id)->whereNull('deleted_at')],
             'revision' => [$this->isMethod('PATCH') ? 'required' : 'prohibited', 'integer', 'min:1'],
             'xml' => ['sometimes', 'required', 'string', 'max:5242880', new DrawioXml],

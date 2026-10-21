@@ -51,7 +51,7 @@ class EquipController extends Controller
 
         return response()->json(['data' => [
             'types' => ThingType::where(fn (Builder $query) => $query->whereNull('scope_id')->orWhere('scope_id', $scope->id))->orderBy('name')->get(),
-            'departments' => $departments->orderBy('name')->get(['id', 'name', 'color']),
+            'departments' => $departments->orderBy('name')->get(['id', 'name', 'color', 'code']),
             'people' => User::where(fn (Builder $query) => $query->whereKey($scope->owner_id)->orWhereIn('id', $scope->members()->where('is_active', true)->select('user_id')))->orderBy('name')->get(['id', 'name']),
             'assignees' => User::whereIn('type', ['real', 'virtual'])->where('status', 'active')->where('is_active', true)->where(fn (Builder $query) => $query->whereKey($scope->owner_id)->orWhereIn('id', $scope->members()->where('is_active', true)->select('user_id')))->orderBy('name')->get(['id', 'name']),
             'permissions' => $permissions,
@@ -70,7 +70,7 @@ class EquipController extends Controller
             'sort' => ['nullable', Rule::in(self::SORTS)],
             'direction' => ['nullable', Rule::in(['asc', 'desc'])],
         ]);
-        $query = $this->equip->constrain(Thing::query(), $this->context->actor($request), $scope)->with(['type:id,name', 'department:id,name,color', 'owner:id,name', 'supplierEntry:id,name', 'currentAssignment']);
+        $query = $this->equip->constrain(Thing::query(), $this->context->actor($request), $scope)->with(['type:id,name', 'department:id,name,color,code', 'owner:id,name', 'supplierEntry:id,name', 'currentAssignment']);
         foreach (['department_id', 'thing_type_id', 'condition'] as $field) {
             if (! empty($data[$field])) {
                 $query->where($field, $data[$field]);
@@ -102,7 +102,7 @@ class EquipController extends Controller
     {
         abort_unless($this->equip->thing($this->context->actor($request), $scope, $thing), 404);
 
-        return response()->json(['data' => $thing->load(['type', 'department:id,name,color', 'owner:id,name', 'supplierEntry:id,name', 'currentAssignment'])]);
+        return response()->json(['data' => $thing->load(['type', 'department:id,name,color,code', 'owner:id,name', 'supplierEntry:id,name', 'currentAssignment'])]);
     }
 
     public function store(SaveThingRequest $request, Scope $scope): JsonResponse
@@ -111,17 +111,22 @@ class EquipController extends Controller
         $data = $request->validated();
         $data['department_id'] ??= $this->access->membership($actor, $scope)?->department_id;
         abort_unless($this->equip->department($actor, $scope, $data['department_id']), 403, 'Нет доступа к оборудованию выбранного отдела.');
+        abort_if(($data['container_kind'] ?? 'none') !== 'none' && ! $this->access->allows($actor, $scope, 'equip.compose'), 403, 'Для создания контейнера нужно право управления комплектацией.');
         $thing = DB::transaction(function () use ($request, $scope, $actor, $data): Thing {
             Scope::whereKey($scope->id)->lockForUpdate()->firstOrFail();
             $data = $this->resolveSupplier($scope, $data);
             $this->validateWmsUnit($scope, $data['wms_inventory_unit'] ?? null);
-            $thing = Thing::create([...$data, 'scope_id' => $scope->id, 'created_by' => $actor->id]);
+            $containerKind = $data['container_kind'] ?? 'none';
+            unset($data['container_kind']);
+            $thing = new Thing([...$data, 'scope_id' => $scope->id, 'created_by' => $actor->id]);
+            $thing->container_kind = $containerKind;
+            $thing->save();
             $this->record($request, $scope, $thing, 'equip.created', null, $thing->attributesToArray());
 
             return $thing;
         });
 
-        return response()->json(['data' => $thing->load(['type', 'department:id,name,color', 'owner:id,name', 'supplierEntry:id,name', 'currentAssignment'])], 201);
+        return response()->json(['data' => $thing->load(['type', 'department:id,name,color,code', 'owner:id,name', 'supplierEntry:id,name', 'currentAssignment'])], 201);
     }
 
     public function update(SaveThingRequest $request, Scope $scope, Thing $thing): JsonResponse
@@ -155,7 +160,7 @@ class EquipController extends Controller
             return $locked;
         });
 
-        return response()->json(['data' => $thing->load(['type', 'department:id,name,color', 'owner:id,name', 'supplierEntry:id,name', 'currentAssignment'])]);
+        return response()->json(['data' => $thing->load(['type', 'department:id,name,color,code', 'owner:id,name', 'supplierEntry:id,name', 'currentAssignment'])]);
     }
 
     public function history(Request $request, Scope $scope, Thing $thing): JsonResponse
@@ -191,7 +196,7 @@ class EquipController extends Controller
     {
         $related = match ($sort) {
             'type' => ThingType::select('name')->whereColumn('thing_types.id', 'things.thing_type_id'),
-            'department' => Department::select('name')->whereColumn('departments.id', 'things.department_id'),
+            'department' => Department::selectRaw('COALESCE(NULLIF(code, ?), name)', [''])->whereColumn('departments.id', 'things.department_id'),
             'supplier' => ThingSupplier::select('name')->whereColumn('thing_suppliers.id', 'things.supplier_id'),
             'assignee' => ThingAssignment::select('user_name')->whereColumn('thing_id', 'things.id')->where('active', 1),
             default => null,

@@ -90,6 +90,14 @@ class DiagramAccessService
             && ($ability === 'task.view' || $diagram->created_by === $actor->id || $scope->owner_id === $actor->id);
     }
 
+    public function canEdit(User $actor, Scope $scope, Diagram $diagram): bool
+    {
+        return $this->can($actor, $scope, $diagram)
+            && $this->access->allows($actor, $scope, 'task.update')
+            && ($diagram->created_by === $actor->id || $scope->owner_id === $actor->id
+                || ($diagram->allow_member_editing && $this->projectAllowed($actor, $scope, $diagram->project_id)));
+    }
+
     public function projectAllowed(User $actor, Scope $scope, ?string $projectId): bool
     {
         if ($projectId === null) {

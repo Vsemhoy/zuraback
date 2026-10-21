@@ -40,7 +40,7 @@ class SaveThingRequest extends WorkspaceRequest
             'purchased_on' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
             'purchase_cost' => ['sometimes', 'nullable', 'numeric', 'min:0', 'max:999999999999.99'],
             'supplier_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('thing_suppliers', 'id')->where('scope_id', $scope->id)],
-            'container_kind' => ['prohibited'],
+            'container_kind' => $thing ? ['prohibited'] : ['sometimes', 'required', Rule::in(['none', 'physical', 'logical'])],
             'supplier' => ['sometimes', 'nullable', 'string', 'max:255'],
             'condition' => ['sometimes', 'required', Rule::in(Thing::CONDITIONS)],
             'suitability' => ['sometimes', 'required', Rule::in(Thing::SUITABILITY)],

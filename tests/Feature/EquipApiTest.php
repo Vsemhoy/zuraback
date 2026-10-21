@@ -14,6 +14,7 @@ use Database\Seeders\EquipTypeSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class EquipApiTest extends TestCase
@@ -35,6 +36,93 @@ class EquipApiTest extends TestCase
     private function payload(ThingType $type): array
     {
         return ['name' => 'Рабочий компьютер', 'thing_type_id' => $type->id, 'registration_basis' => 'Счёт 184 от 19.10.2026', 'characteristics' => ['ram' => 16]];
+    }
+
+    #[DataProvider('containerKinds')]
+    public function test_equipment_can_be_created_with_its_container_kind(string $kind): void
+    {
+        [$scope, $type, $owner, $url] = $this->workspace();
+
+        $id = $this->postJson($url, [...$this->payload($type), 'container_kind' => $kind])
+            ->assertCreated()->assertJsonPath('data.container_kind', $kind)->assertJsonPath('data.revision', 1)->json('data.id');
+
+        $this->assertDatabaseHas('things', ['id' => $id, 'container_kind' => $kind, 'created_by' => $owner->id]);
+        $this->getJson("$url/$id/history")->assertOk()->assertJsonPath('data.0.after.container_kind', $kind);
+        $this->assertDatabaseCount('activity_logs', 1);
+        $this->patchJson("$url/$id", ['revision' => 1, 'container_kind' => 'none'])->assertUnprocessable()->assertJsonValidationErrors('container_kind');
+        $this->assertDatabaseHas('things', ['id' => $id, 'container_kind' => $kind, 'revision' => 1]);
+    }
+
+    public static function containerKinds(): array
+    {
+        return ['computer' => ['physical'], 'workplace' => ['logical']];
+    }
+
+    public function test_container_creation_requires_compose_but_standalone_creation_does_not(): void
+    {
+        [$scope, $type, , $url] = $this->workspace();
+        $member = User::factory()->create();
+        $department = Department::factory()->create(['scope_id' => $scope->id]);
+        $scope->members()->create(['user_id' => $member->id, 'role' => 'member', 'department_id' => $department->id, 'permissions' => ['allow' => ['equip.create']]]);
+        $this->actingAs($member);
+
+        $this->postJson($url, [...$this->payload($type), 'container_kind' => 'physical'])->assertForbidden();
+        $this->assertDatabaseCount('things', 0);
+        $this->postJson($url, [...$this->payload($type), 'container_kind' => 'none'])->assertCreated()->assertJsonPath('data.container_kind', 'none');
+
+        $this->assertDatabaseHas('things', ['created_by' => $member->id, 'container_kind' => 'none']);
+        $this->assertDatabaseCount('activity_logs', 1);
+    }
+
+    public function test_compose_without_create_does_not_allow_new_container(): void
+    {
+        [$scope, $type, , $url] = $this->workspace();
+        $member = User::factory()->create();
+        $department = Department::factory()->create(['scope_id' => $scope->id]);
+        $scope->members()->create(['user_id' => $member->id, 'role' => 'member', 'department_id' => $department->id, 'permissions' => ['allow' => ['equip.compose']]]);
+
+        $this->actingAs($member)->postJson($url, [...$this->payload($type), 'container_kind' => 'logical'])->assertForbidden();
+
+        $this->assertDatabaseCount('things', 0);
+        $this->assertDatabaseCount('activity_logs', 0);
+    }
+
+    public function test_container_creation_rejects_an_invalid_kind(): void
+    {
+        [$scope, $type, , $url] = $this->workspace();
+
+        $this->postJson($url, [...$this->payload($type), 'container_kind' => 'virtual'])->assertUnprocessable()->assertJsonValidationErrors('container_kind');
+
+        $this->assertDatabaseCount('things', 0);
+    }
+
+    public function test_system_workplace_type_is_available_for_logical_container_creation(): void
+    {
+        [$scope, , , $url] = $this->workspace();
+        $type = ThingType::query()->where('code', 'workplace')->whereNull('scope_id')->firstOrFail();
+
+        $id = $this->postJson($url, [...$this->payload($type), 'name' => 'Рабочее место инженера', 'characteristics' => [], 'container_kind' => 'logical'])
+            ->assertCreated()->assertJsonPath('data.type.name', 'Рабочее место')->assertJsonPath('data.container_kind', 'logical')->json('data.id');
+
+        $this->assertDatabaseHas('things', ['id' => $id, 'thing_type_id' => $type->id, 'container_kind' => 'logical']);
+    }
+
+    public function test_department_codes_are_returned_and_sort_as_displayed_with_legacy_fallback(): void
+    {
+        [$scope, $type, $owner, $url] = $this->workspace();
+        $firstDepartment = Department::factory()->create(['scope_id' => $scope->id, 'name' => 'Zulu department', 'code' => 'ADM']);
+        $lastDepartment = Department::factory()->create(['scope_id' => $scope->id, 'name' => 'Alpha department', 'code' => 'ZED']);
+        $legacyDepartment = Department::factory()->create(['scope_id' => $scope->id, 'name' => 'Middle department']);
+        $first = Thing::factory()->create(['scope_id' => $scope->id, 'thing_type_id' => $type->id, 'department_id' => $firstDepartment->id]);
+        $last = Thing::factory()->create(['scope_id' => $scope->id, 'thing_type_id' => $type->id, 'department_id' => $lastDepartment->id]);
+        $middle = Thing::factory()->create(['scope_id' => $scope->id, 'thing_type_id' => $type->id, 'department_id' => $legacyDepartment->id]);
+
+        $this->getJson("$url?sort=department&direction=asc")->assertOk()->assertJsonPath('data.0.id', $first->id)
+            ->assertJsonPath('data.0.department.code', 'ADM')->assertJsonPath('data.0.department.name', 'Zulu department')
+            ->assertJsonPath('data.1.id', $middle->id)->assertJsonPath('data.2.id', $last->id);
+        $this->getJson("$url?sort=department&direction=desc")->assertOk()->assertJsonPath('data.0.id', $last->id);
+        $this->getJson("$url/{$first->id}")->assertOk()->assertJsonPath('data.department.code', 'ADM');
+        $this->getJson("$url/options")->assertOk()->assertJsonFragment(['code' => 'ADM']);
     }
 
     public function test_registration_and_revision_preserve_wms_strings_and_history(): void
@@ -152,11 +240,11 @@ class EquipApiTest extends TestCase
         [$scope, , , $url] = $this->workspace();
         $this->seed(EquipTypeSeeder::class);
         $this->seed(EquipTypeSeeder::class);
-        $this->assertDatabaseCount('thing_types', 11);
+        $this->assertDatabaseCount('thing_types', 12);
         $id = $this->postJson("$url/types", ['name' => 'Тестер кабеля', 'schema' => [['key' => 'ports', 'label' => 'Порты', 'type' => 'number']]])->assertCreated()->json('data.id');
         $this->assertDatabaseHas('thing_types', ['id' => $id, 'scope_id' => $scope->id]);
         $this->postJson("$url/types", ['name' => 'Bad', 'schema' => [['key' => 'bad.key', 'label' => 'X', 'type' => 'html']]])->assertUnprocessable();
-        $this->getJson("$url/options")->assertJsonCount(12, 'data.types');
+        $this->getJson("$url/options")->assertJsonCount(13, 'data.types');
     }
 
     public function test_search_filters_and_nonempty_department_delete(): void

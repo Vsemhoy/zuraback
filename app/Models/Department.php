@@ -5,7 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['scope_id', 'name', 'description', 'color'])]
+#[Fillable(['scope_id', 'name', 'code', 'description', 'color', 'icon_svg'])]
 class Department extends DomainModel
 {
     public const COLORS = ['#c9f1d5', '#d4e8fc', '#e5dcfa', '#f9dce5', '#fce4cd', '#f7efc6', '#cdeee9', '#e3e8ef'];

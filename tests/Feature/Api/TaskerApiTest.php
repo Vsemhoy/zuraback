@@ -3,7 +3,9 @@
 namespace Tests\Feature\Api;
 
 use App\Models\ActivityLog;
+use App\Models\Department;
 use App\Models\EntityLink;
+use App\Models\Project;
 use App\Models\Scope;
 use App\Models\Task;
 use App\Models\User;
@@ -347,6 +349,142 @@ class TaskerApiTest extends TestCase
 
         $this->assertDatabaseHas('tasks', ['id' => $updated['id'], 'status' => 'done', 'assignee_id' => $user->id]);
         $this->assertDatabaseHas('tasks', ['id' => $dragged['id'], 'status' => 'done', 'assignee_id' => $user->id]);
+    }
+
+    public function test_subtasks_inherit_parent_project_department_and_assignee(): void
+    {
+        [$user, $scope] = $this->workspace();
+        $assignee = User::factory()->create();
+        $scope->members()->create(['user_id' => $assignee->id, 'role' => 'member', 'project_access_mode' => 'all']);
+        $department = Department::factory()->create(['scope_id' => $scope->id]);
+        $projectDepartment = Department::factory()->create(['scope_id' => $scope->id]);
+        $project = Project::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id, 'department_id' => $projectDepartment->id, 'visibility' => 'scope']);
+        $parent = Task::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id, 'project_id' => $project->id, 'department_id' => $department->id, 'assignee_id' => $assignee->id]);
+
+        $child = $this->actingAs($user)->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/tasks", ['title' => 'Inherited child', 'parent_id' => $parent->id])
+            ->assertCreated()->assertJsonPath('data.project_id', $project->id)
+            ->assertJsonPath('data.department_id', $department->id)->assertJsonPath('data.assignee_id', $assignee->id)->json('data');
+
+        $this->assertDatabaseHas('tasks', ['id' => $child['id'], 'parent_id' => $parent->id, 'project_id' => $project->id, 'department_id' => $department->id, 'assignee_id' => $assignee->id]);
+        $this->assertDatabaseHas('activity_logs', ['subject_id' => $child['id'], 'action' => 'task.created']);
+    }
+
+    public function test_subtask_explicit_routing_overrides_parent_defaults(): void
+    {
+        [$user, $scope] = $this->workspace();
+        $department = Department::factory()->create(['scope_id' => $scope->id]);
+        $parent = Task::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id]);
+        $project = Project::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id]);
+
+        $child = $this->actingAs($user)->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/tasks", ['title' => 'Explicit child', 'parent_id' => $parent->id, 'project_id' => $project->id, 'department_id' => $department->id, 'assignee_id' => $user->id])
+            ->assertCreated()->assertJsonPath('data.project_id', $project->id)
+            ->assertJsonPath('data.department_id', $department->id)->assertJsonPath('data.assignee_id', $user->id)->json('data');
+
+        $this->assertDatabaseHas('tasks', ['id' => $child['id'], 'project_id' => $project->id, 'department_id' => $department->id, 'assignee_id' => $user->id]);
+    }
+
+    public function test_subtask_explicit_null_routing_is_not_replaced_by_parent_or_creator(): void
+    {
+        [$user, $scope] = $this->workspace();
+        $department = Department::factory()->create(['scope_id' => $scope->id]);
+        $project = Project::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id, 'department_id' => $department->id]);
+        $parent = Task::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id, 'project_id' => $project->id, 'department_id' => $department->id, 'assignee_id' => $user->id]);
+
+        $child = $this->actingAs($user)->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/tasks", ['title' => 'Unassigned child', 'parent_id' => $parent->id, 'project_id' => null, 'department_id' => null, 'assignee_id' => null])
+            ->assertCreated()->assertJsonPath('data.project_id', null)
+            ->assertJsonPath('data.department_id', null)->assertJsonPath('data.assignee_id', null)->json('data');
+
+        $this->assertDatabaseHas('tasks', ['id' => $child['id'], 'project_id' => null, 'department_id' => null, 'assignee_id' => null]);
+    }
+
+    public function test_subtask_of_unassigned_parent_stays_unassigned(): void
+    {
+        [$user, $scope] = $this->workspace();
+        $parent = Task::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id]);
+
+        $child = $this->actingAs($user)->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/tasks", ['title' => 'Unrouted child', 'parent_id' => $parent->id])
+            ->assertCreated()->assertJsonPath('data.project_id', null)
+            ->assertJsonPath('data.department_id', null)->assertJsonPath('data.assignee_id', null)->json('data');
+
+        $this->assertDatabaseHas('tasks', ['id' => $child['id'], 'assignee_id' => null]);
+    }
+
+    public function test_subtask_creation_returns_422_for_a_parent_in_another_scope(): void
+    {
+        [$user, $scope] = $this->workspace();
+        $foreignParent = Task::factory()->create();
+
+        $this->actingAs($user)->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/tasks", ['title' => 'Foreign child', 'parent_id' => $foreignParent->id])
+            ->assertUnprocessable()->assertJsonPath('message', 'Invalid parent_id for this scope.');
+
+        $this->assertDatabaseMissing('tasks', ['parent_id' => $foreignParent->id]);
+    }
+
+    public function test_subtask_creation_returns_403_for_an_inaccessible_parent(): void
+    {
+        [$user, $scope] = $this->workspace();
+        $member = User::factory()->create();
+        $scope->members()->create(['user_id' => $member->id, 'role' => 'member', 'project_access_mode' => 'all']);
+        $project = Project::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id, 'visibility' => 'private']);
+        $parent = Task::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id, 'project_id' => $project->id]);
+
+        $this->actingAs($member)->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/tasks", ['title' => 'Hidden child', 'parent_id' => $parent->id])
+            ->assertForbidden()->assertJsonPath('message', 'The parent task is outside the contractor access boundary.');
+
+        $this->assertDatabaseMissing('tasks', ['parent_id' => $parent->id]);
+    }
+
+    public function test_subtask_inheritance_does_not_bypass_assignment_permissions(): void
+    {
+        [$user, $scope] = $this->workspace();
+        $member = User::factory()->create();
+        $scope->members()->create(['user_id' => $member->id, 'role' => 'member', 'project_access_mode' => 'all', 'permissions' => ['deny' => ['task.assign']]]);
+        $parent = Task::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id, 'assignee_id' => $user->id]);
+
+        $this->actingAs($member)->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/tasks", ['title' => 'Forbidden assignment', 'parent_id' => $parent->id])
+            ->assertForbidden()->assertJsonPath('message', 'The task.assign capability is required.');
+
+        $this->assertDatabaseMissing('tasks', ['parent_id' => $parent->id]);
+    }
+
+    public function test_checklist_conversion_inherits_parent_routing_and_assignee(): void
+    {
+        [$user, $scope] = $this->workspace();
+        $department = Department::factory()->create(['scope_id' => $scope->id]);
+        $project = Project::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id]);
+        $parent = Task::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id, 'department_id' => $department->id, 'project_id' => $project->id, 'assignee_id' => $user->id]);
+        $item = $parent->checklistItems()->create(['created_by' => $user->id, 'title' => 'Growing step']);
+
+        $child = $this->actingAs($user)->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/tasks/{$parent->id}/checklist/{$item->id}/convert-to-subtask")
+            ->assertCreated()->assertJsonPath('data.project_id', $project->id)
+            ->assertJsonPath('data.department_id', $department->id)->assertJsonPath('data.assignee_id', $user->id)
+            ->assertJsonPath('data.department.id', $department->id)->json('data');
+
+        $this->assertDatabaseHas('tasks', ['id' => $child['id'], 'parent_id' => $parent->id, 'project_id' => $project->id, 'department_id' => $department->id, 'assignee_id' => $user->id]);
+        $this->assertDatabaseMissing('task_checklist_items', ['id' => $item->id]);
+        $this->assertDatabaseHas('activity_logs', ['subject_id' => $child['id'], 'action' => 'checklist_item.converted_to_subtask']);
+    }
+
+    public function test_checklist_conversion_preserves_the_items_own_assignee(): void
+    {
+        [$user, $scope] = $this->workspace();
+        $parent = Task::factory()->create(['scope_id' => $scope->id, 'created_by' => $user->id]);
+        $item = $parent->checklistItems()->create(['created_by' => $user->id, 'title' => 'Assigned step', 'assignee_id' => $user->id]);
+
+        $child = $this->actingAs($user)->withHeaders(self::HEADERS)
+            ->postJson("/api/scopes/{$scope->id}/tasks/{$parent->id}/checklist/{$item->id}/convert-to-subtask")
+            ->assertCreated()->assertJsonPath('data.assignee_id', $user->id)->json('data');
+
+        $this->assertDatabaseHas('tasks', ['id' => $child['id'], 'assignee_id' => $user->id]);
+        $this->assertDatabaseMissing('task_checklist_items', ['id' => $item->id]);
     }
 
     public function test_checklist_item_can_be_converted_and_subtask_can_be_detached(): void

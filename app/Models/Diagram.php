@@ -7,14 +7,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-#[Fillable(['scope_id', 'project_id', 'created_by', 'title', 'description', 'visibility', 'xml', 'preview_svg', 'revision'])]
+#[Fillable(['scope_id', 'project_id', 'created_by', 'title', 'description', 'visibility', 'allow_member_editing', 'xml', 'preview_svg', 'revision'])]
 class Diagram extends DomainModel
 {
     use SoftDeletes;
 
     public const EMPTY_XML = '<mxfile><diagram id="page-1" name="Page-1"><mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/></root></mxGraphModel></diagram></mxfile>';
 
-    protected $attributes = ['visibility' => 'private', 'revision' => 1, 'xml' => self::EMPTY_XML];
+    protected $attributes = ['visibility' => 'private', 'allow_member_editing' => false, 'revision' => 1, 'xml' => self::EMPTY_XML];
 
     public function project(): BelongsTo
     {
@@ -38,6 +38,6 @@ class Diagram extends DomainModel
 
     protected function casts(): array
     {
-        return ['revision' => 'integer'];
+        return ['revision' => 'integer', 'allow_member_editing' => 'boolean'];
     }
 }

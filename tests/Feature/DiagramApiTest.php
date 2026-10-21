@@ -41,6 +41,7 @@ class DiagramApiTest extends TestCase
         $stranger = User::factory()->create();
         $id = $this->postJson($url, ['title' => 'Warehouse flow', 'xml' => Diagram::EMPTY_XML, 'preview_svg' => self::SVG, 'created_by' => $stranger->id, 'scope_id' => 'fake'])
             ->assertCreated()->assertJsonPath('data.revision', 1)->assertJsonPath('data.visibility', 'private')
+            ->assertJsonPath('data.allow_member_editing', false)->assertJsonPath('data.can_edit', true)
             ->assertJsonPath('data.creator.id', $owner->id)->assertJsonPath('data.xml', Diagram::EMPTY_XML)->json('data.id');
 
         $this->assertDatabaseHas('diagrams', ['id' => $id, 'scope_id' => $scope->id, 'created_by' => $owner->id, 'xml' => Diagram::EMPTY_XML]);
@@ -86,11 +87,11 @@ class DiagramApiTest extends TestCase
     public function test_duplicate_is_independent_private_and_does_not_copy_attachments_or_history(): void
     {
         [$owner, $scope, $url] = $this->workspace();
-        $item = Diagram::factory()->create(['scope_id' => $scope->id, 'created_by' => $owner->id, 'visibility' => 'scope', 'revision' => 7, 'preview_svg' => self::SVG]);
+        $item = Diagram::factory()->create(['scope_id' => $scope->id, 'created_by' => $owner->id, 'visibility' => 'scope', 'allow_member_editing' => true, 'revision' => 7, 'preview_svg' => self::SVG]);
         $task = Task::factory()->create(['scope_id' => $scope->id, 'created_by' => $owner->id]);
         $item->attachments()->create(['subject_type' => 'task', 'subject_id' => $task->id, 'created_by' => $owner->id]);
         $copy = $this->postJson($url.'/'.$item->id.'/duplicate', ['title' => 'Independent copy'])->assertCreated()->assertJsonPath('data.visibility', 'private')
-            ->assertJsonPath('data.revision', 1)->assertJsonPath('data.xml', Diagram::EMPTY_XML)->assertJsonCount(0, 'data.attachments')->json('data.id');
+            ->assertJsonPath('data.revision', 1)->assertJsonPath('data.allow_member_editing', false)->assertJsonPath('data.xml', Diagram::EMPTY_XML)->assertJsonCount(0, 'data.attachments')->json('data.id');
         $this->assertNotSame($item->id, $copy);
         $this->assertDatabaseHas('diagram_revisions', ['diagram_id' => $copy, 'number' => 1]);
         $this->patchJson($url.'/'.$copy, ['revision' => 1, 'title' => 'Different'])->assertOk();
@@ -122,6 +123,144 @@ class DiagramApiTest extends TestCase
         $this->patchJson($url.'/'.$item->id, ['revision' => 1, 'title' => 'Overwrite'])->assertNotFound();
         $this->postJson($url.'/'.$item->id.'/duplicate', [])->assertCreated()->assertJsonPath('data.creator.id', $member->id)->assertJsonPath('data.visibility', 'private');
         $this->assertDatabaseHas('diagrams', ['id' => $item->id, 'revision' => 1]);
+    }
+
+    public function test_scope_members_can_edit_when_enabled_and_owner_can_revoke_permission(): void
+    {
+        [$owner, $scope, $url] = $this->workspace();
+        $member = $this->colleague($scope);
+        $id = $this->postJson($url, ['title' => 'Collaborative', 'visibility' => 'scope', 'allow_member_editing' => true])
+            ->assertCreated()->assertJsonPath('data.allow_member_editing', true)->json('data.id');
+        $this->actingAs($member)->getJson($url.'/'.$id)->assertOk()
+            ->assertJsonPath('data.can_edit', true)->assertJsonPath('data.can_manage', false)->assertJsonPath('data.can_delete', false);
+        $this->getJson($url)->assertOk()->assertJsonPath('data.0.allow_member_editing', true);
+        $xml = '<mxfile><diagram name="Member edit">member-data</diagram></mxfile>';
+
+        $this->patchJson($url.'/'.$id, ['revision' => 1, 'xml' => $xml, 'preview_svg' => self::SVG])->assertOk()
+            ->assertJsonPath('data.xml', $xml)->assertJsonPath('data.revision', 2)->assertJsonPath('data.creator.id', $owner->id);
+
+        $this->assertDatabaseHas('diagram_revisions', ['diagram_id' => $id, 'number' => 2, 'created_by' => $member->id, 'xml' => $xml]);
+        $this->assertDatabaseHas('activity_logs', ['subject_id' => $id, 'action' => 'diagram.updated', 'actor_id' => $member->id]);
+        $this->patchJson($url.'/'.$id, ['revision' => 1, 'xml' => Diagram::EMPTY_XML])->assertConflict();
+        $this->actingAs($owner)->patchJson($url.'/'.$id, ['revision' => 2, 'allow_member_editing' => false])->assertOk()->assertJsonPath('data.revision', 3);
+        $this->actingAs($member)->getJson($url.'/'.$id)->assertOk()->assertJsonPath('data.can_edit', false);
+        $this->patchJson($url.'/'.$id, ['revision' => 3, 'title' => 'Denied after revocation'])->assertNotFound();
+        $this->assertDatabaseHas('diagrams', ['id' => $id, 'allow_member_editing' => false, 'revision' => 3, 'title' => 'Collaborative', 'xml' => $xml]);
+    }
+
+    public function test_project_collaboration_requires_project_write_access(): void
+    {
+        [$owner, $scope, $url] = $this->workspace();
+        $member = $this->colleague($scope, 'member', 'restricted');
+        $project = Project::factory()->create(['scope_id' => $scope->id, 'created_by' => $owner->id, 'visibility' => 'scope']);
+        $membership = $project->members()->create(['user_id' => $member->id, 'assigned_by' => $owner->id]);
+        $item = Diagram::factory()->create(['scope_id' => $scope->id, 'created_by' => $owner->id, 'project_id' => $project->id, 'visibility' => 'scope', 'allow_member_editing' => true]);
+
+        $this->actingAs($member)->patchJson($url.'/'.$item->id, ['revision' => 1, 'description' => 'Project edit'])->assertOk()->assertJsonPath('data.can_edit', true);
+
+        $this->assertDatabaseHas('diagrams', ['id' => $item->id, 'description' => 'Project edit', 'revision' => 2]);
+        $membership->update(['permissions' => ['deny' => ['task.update']]]);
+        $this->getJson($url.'/'.$item->id)->assertOk()->assertJsonPath('data.can_edit', false);
+        $this->patchJson($url.'/'.$item->id, ['revision' => 2, 'description' => 'Denied edit'])->assertNotFound();
+        $this->actingAs($this->colleague($scope, 'member', 'restricted'))->getJson($url.'/'.$item->id)->assertNotFound();
+        $this->patchJson($url.'/'.$item->id, ['revision' => 2, 'description' => 'Hidden edit'])->assertNotFound();
+        $this->assertDatabaseHas('diagrams', ['id' => $item->id, 'description' => 'Project edit', 'revision' => 2]);
+    }
+
+    public function test_collaboration_does_not_expose_private_diagrams_projects_or_other_scopes(): void
+    {
+        [$owner, $scope, $url] = $this->workspace();
+        $member = $this->colleague($scope);
+        $private = Diagram::factory()->create(['scope_id' => $scope->id, 'created_by' => $owner->id, 'allow_member_editing' => true]);
+        $project = Project::factory()->create(['scope_id' => $scope->id, 'created_by' => $owner->id, 'visibility' => 'private']);
+        $hiddenProject = Diagram::factory()->create(['scope_id' => $scope->id, 'created_by' => $owner->id, 'project_id' => $project->id, 'visibility' => 'scope', 'allow_member_editing' => true]);
+        $foreign = Diagram::factory()->create(['visibility' => 'scope', 'allow_member_editing' => true]);
+
+        $this->actingAs($member)->getJson($url)->assertOk()->assertJsonCount(0, 'data');
+        foreach ([$private, $hiddenProject, $foreign] as $item) {
+            $this->getJson($url.'/'.$item->id)->assertNotFound();
+            $this->patchJson($url.'/'.$item->id, ['revision' => 1, 'title' => 'Denied'])->assertNotFound();
+            $this->getJson("/api/scopes/{$scope->id}/content-nodes/diagram/{$item->id}")->assertNotFound();
+            $this->assertDatabaseHas('diagrams', ['id' => $item->id, 'revision' => 1, 'title' => $item->title]);
+        }
+    }
+
+    public function test_collaborators_cannot_change_sharing_project_links_or_delete(): void
+    {
+        [$owner, $scope, $url] = $this->workspace();
+        $member = $this->colleague($scope);
+        $scope->members()->where('user_id', $member->id)->update(['permissions' => ['allow' => ['task.delete']]]);
+        $item = Diagram::factory()->create(['scope_id' => $scope->id, 'created_by' => $owner->id, 'visibility' => 'scope', 'allow_member_editing' => true]);
+        $task = Task::factory()->create(['scope_id' => $scope->id, 'created_by' => $owner->id]);
+        $this->actingAs($member);
+
+        foreach ([['visibility' => 'private'], ['project_id' => null], ['allow_member_editing' => false]] as $settings) {
+            $this->patchJson($url.'/'.$item->id, [...$settings, 'revision' => 1, 'xml' => '<mxfile><diagram>Denied</diagram></mxfile>'])->assertNotFound();
+        }
+        $this->postJson($url.'/'.$item->id.'/attachments', ['subject_type' => 'task', 'subject_id' => $task->id])->assertNotFound();
+        $this->postJson("/api/scopes/{$scope->id}/content-nodes/diagram/{$item->id}/links", ['target_type' => 'task', 'target_id' => $task->id])->assertNotFound();
+        $this->deleteJson($url.'/'.$item->id)->assertNotFound();
+
+        $this->assertDatabaseHas('diagrams', ['id' => $item->id, 'visibility' => 'scope', 'allow_member_editing' => true, 'revision' => 1, 'xml' => Diagram::EMPTY_XML, 'deleted_at' => null]);
+        $this->assertDatabaseCount('diagram_attachments', 0);
+        $this->assertDatabaseCount('content_navigation_links', 0);
+        $this->assertDatabaseCount('diagram_revisions', 0);
+    }
+
+    public function test_diagram_browser_exposes_edit_permission_without_navigation_management(): void
+    {
+        [$owner, $scope] = $this->workspace();
+        $member = $this->colleague($scope);
+        $item = Diagram::factory()->create(['scope_id' => $scope->id, 'created_by' => $owner->id, 'visibility' => 'scope', 'allow_member_editing' => true]);
+
+        $this->actingAs($member)->getJson("/api/scopes/{$scope->id}/content-nodes/diagram/{$item->id}")
+            ->assertOk()->assertJsonPath('data.can_edit', true)->assertJsonPath('data.can_manage', false)
+            ->assertJsonPath('data.document.xml', Diagram::EMPTY_XML);
+    }
+
+    public function test_collaboration_does_not_override_observer_or_denied_capabilities(): void
+    {
+        [$owner, $scope, $url] = $this->workspace();
+        $observer = $this->colleague($scope, 'observer');
+        $denied = $this->colleague($scope);
+        $scope->members()->where('user_id', $denied->id)->update(['permissions' => ['deny' => ['task.update']]]);
+        $item = Diagram::factory()->create(['scope_id' => $scope->id, 'created_by' => $owner->id, 'visibility' => 'scope', 'allow_member_editing' => true]);
+
+        foreach ([$observer, $denied] as $actor) {
+            $this->actingAs($actor)->getJson($url.'/'.$item->id)->assertOk()->assertJsonPath('data.can_edit', false);
+            $this->patchJson($url.'/'.$item->id, ['revision' => 1, 'title' => 'Denied'])->assertForbidden();
+        }
+
+        $this->assertDatabaseHas('diagrams', ['id' => $item->id, 'revision' => 1, 'title' => $item->title]);
+    }
+
+    public function test_agent_collaboration_respects_token_write_abilities(): void
+    {
+        [$owner, $scope] = $this->workspace();
+        $agent = User::factory()->agent()->create();
+        $scope->members()->create(['user_id' => $agent->id, 'role' => 'member', 'project_access_mode' => 'all']);
+        $item = Diagram::factory()->create(['scope_id' => $scope->id, 'created_by' => $owner->id, 'visibility' => 'scope', 'allow_member_editing' => true]);
+        $url = "/api/agent/scopes/{$scope->id}/diagrams/{$item->id}";
+        Sanctum::actingAs($agent, ['task.view']);
+        $this->getJson($url)->assertOk()->assertJsonPath('data.can_edit', false);
+        $this->patchJson($url, ['revision' => 1, 'title' => 'Denied'])->assertForbidden();
+        Sanctum::actingAs($agent, ['task.view', 'task.update']);
+
+        $this->patchJson($url, ['revision' => 1, 'description' => 'Agent collaboration'])
+            ->assertOk()->assertJsonPath('data.can_edit', true)->assertJsonPath('data.can_manage', false);
+
+        $this->assertDatabaseHas('diagrams', ['id' => $item->id, 'description' => 'Agent collaboration', 'revision' => 2]);
+        $this->assertDatabaseHas('diagram_revisions', ['diagram_id' => $item->id, 'created_by' => $agent->id, 'number' => 2]);
+    }
+
+    public function test_member_editing_setting_requires_a_boolean(): void
+    {
+        [$owner, $scope, $url] = $this->workspace();
+
+        $this->postJson($url, ['title' => 'Bad setting', 'allow_member_editing' => 'everyone'])
+            ->assertUnprocessable()->assertJsonValidationErrors('allow_member_editing');
+
+        $this->assertDatabaseCount('diagrams', 0);
     }
 
     public function test_private_projects_and_cross_scope_requests_do_not_leak_diagrams_or_versions(): void

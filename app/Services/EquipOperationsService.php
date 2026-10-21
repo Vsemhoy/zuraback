@@ -57,7 +57,7 @@ class EquipOperationsService
                 'disband' => $this->disband($request, $scope, $root, $data),
             };
 
-            return $root->refresh()->load(['type', 'department:id,name,color', 'owner:id,name', 'supplierEntry:id,name', 'currentAssignment']);
+            return $root->refresh()->load(['type', 'department:id,name,color,code', 'owner:id,name', 'supplierEntry:id,name', 'currentAssignment']);
         });
     }
 
