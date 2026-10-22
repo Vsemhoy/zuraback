@@ -9,6 +9,7 @@ use App\Models\LoreEntry;
 use App\Models\Scope;
 use App\Services\ContractorAccessService;
 use App\Services\ContractorContext;
+use App\Services\ScopeModuleService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -39,7 +40,7 @@ class SearchController extends Controller
 
         $needle = trim($data['q']);
         $pattern = '%'.$needle.'%';
-        $types = $this->types($data['types'] ?? null);
+        $types = array_values(array_filter($this->types($data['types'] ?? null), fn (string $type): bool => ($module = ScopeModuleService::entityModule($type)) === null || $scope->moduleEnabled($module)));
         $filters = [
             'project_id' => $data['project_id'] ?? null,
             'user_id' => $data['user_id'] ?? null,

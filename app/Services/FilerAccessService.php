@@ -21,7 +21,7 @@ class FilerAccessService
 
     public function subject(User $actor, Scope $scope, ?Model $subject, bool $write = false): bool
     {
-        if ($subject === null) {
+        if ($subject === null || ! ScopeModuleService::entityEnabled($scope, $subject)) {
             return false;
         }
         if ($subject instanceof User) {

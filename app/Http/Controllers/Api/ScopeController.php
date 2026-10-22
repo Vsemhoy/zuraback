@@ -5,8 +5,11 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\StoreScopeRequest;
 use App\Http\Requests\Api\UpdateScopeAppearanceRequest;
+use App\Http\Requests\Api\UpdateScopeModulesRequest;
 use App\Http\Resources\ScopeResource;
+use App\Models\ActivityLog;
 use App\Models\Scope;
+use App\Services\ScopeModuleService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Arr;
@@ -52,6 +55,25 @@ class ScopeController extends Controller
         $scope->loadExists(['members as is_appearance_admin' => fn ($query) => $query->where('user_id', $request->user()->id)->where('is_active', true)->where('role', 'admin')]);
 
         return new ScopeResource($scope);
+    }
+
+    public function updateModules(UpdateScopeModulesRequest $request, Scope $scope): ScopeResource
+    {
+        DB::transaction(function () use ($request, $scope): void {
+            $locked = Scope::query()->whereKey($scope->id)->lockForUpdate()->firstOrFail();
+            $before = ScopeModuleService::settings($locked);
+            $settings = $locked->settings ?? [];
+            $payload = $request->validated();
+            $payload['enabled'] = array_map(fn ($value): bool => (bool) $value, $payload['enabled']);
+            $locked->settings = [...$settings, 'modules' => $payload];
+            $normalized = ScopeModuleService::settings($locked);
+            $locked->update(['settings' => [...$settings, 'modules' => $normalized]]);
+            ActivityLog::query()->create(['scope_id' => $scope->id, 'actor_id' => $request->user()->id,
+                'subject_type' => 'scope', 'subject_id' => $scope->id, 'action' => 'scope.modules_updated',
+                'before' => $before, 'after' => $normalized]);
+        });
+
+        return $this->show($request, $scope->refresh());
     }
 
     public function updateAppearance(UpdateScopeAppearanceRequest $request, Scope $scope): ScopeResource

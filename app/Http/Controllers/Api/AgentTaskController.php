@@ -16,7 +16,7 @@ class AgentTaskController extends Controller
 
         $memberships = $request->user()->scopeMemberships()
             ->where('is_active', true)
-            ->get(['scope_id', 'project_access_mode']);
+            ->with('scope')->get(['scope_id', 'project_access_mode'])->filter(fn ($membership): bool => $membership->scope?->moduleEnabled('tasker') === true);
         $allScopeIds = $memberships->where('project_access_mode', 'all')->pluck('scope_id');
         $restrictedScopeIds = $memberships->where('project_access_mode', 'restricted')->pluck('scope_id');
 

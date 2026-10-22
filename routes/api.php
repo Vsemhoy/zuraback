@@ -35,7 +35,7 @@ Route::prefix('agent')->middleware(['auth:sanctum', 'active', 'agent', 'agent.au
     Route::get('/tasks', [AgentTaskController::class, 'index']);
     Route::get('/scopes', [ScopeController::class, 'index']);
 
-    Route::prefix('/scopes/{scope}')->middleware('scope.member')->group(function (): void {
+    Route::prefix('/scopes/{scope}')->middleware(['scope.member', 'scope.module'])->group(function (): void {
         Route::prefix('diagrams')->middleware(['scope.actor', 'scope.ability:task.view', 'throttle:90,1'])->group(function (): void {
             require __DIR__.'/diagrams.php';
         });

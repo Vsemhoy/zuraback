@@ -12,6 +12,7 @@ use App\Models\EventSection;
 use App\Models\Fact;
 use App\Models\Kpi;
 use App\Models\Project;
+use App\Models\Scope;
 use App\Models\Task;
 use App\Models\TaskChecklistItem;
 use App\Models\Thing;
@@ -45,6 +46,7 @@ class AppServiceProvider extends ServiceProvider
         Model::preventLazyLoading(! $this->app->isProduction());
 
         Relation::enforceMorphMap([
+            'scope' => Scope::class,
             'thing' => Thing::class,
             'diagram' => Diagram::class,
             'darklog' => Darklog::class,

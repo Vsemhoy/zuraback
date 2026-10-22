@@ -155,7 +155,7 @@ class DarklogService
         }
         $darklog->loadMissing(['kpiLinks.user:id,name,profile', 'kpiLinks.kpi:id,name,kind,points', 'kpiLinks.reviewer:id,name,profile']);
         $row['links'] = $links->all();
-        $row['kpi_links'] = $darklog->kpiLinks->map(fn ($link): array => [
+        $row['kpi_links'] = ! $scope->moduleEnabled('kpi') ? [] : $darklog->kpiLinks->map(fn ($link): array => [
             ...$link->attributesToArray(), 'user' => $this->person($link->user), 'kpi' => $link->kpi, 'reviewer' => $this->person($link->reviewer),
         ])->all();
         $timeline = collect($markers);

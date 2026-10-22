@@ -93,7 +93,7 @@ class DarklogController extends Controller
             'projects' => $this->access->constrainProjects($scope->projects()->getQuery(), $actor, $scope)->orderBy('sort_order')->get(['id', 'key', 'title', 'color']),
             'departments' => Department::query()->where('scope_id', $scope->id)->orderBy('name')->get(['id', 'name', 'color']),
             'people' => $people->map(fn (User $person): array => [...$this->darklogs->person($person), 'is_executor' => $person->is_executor, 'type' => $person->type]),
-            'kpis' => Kpi::query()->where('scope_id', $scope->id)->where('is_active', true)->orderBy('name')->get(['id', 'name', 'kind', 'points']),
+            'kpis' => ! $scope->moduleEnabled('kpi') ? [] : Kpi::query()->where('scope_id', $scope->id)->where('is_active', true)->orderBy('name')->get(['id', 'name', 'kind', 'points']),
             'can_create' => $this->access->allows($actor, $scope, 'task.create'),
             'can_review' => $this->access->allows($actor, $scope, 'contractor.manage'),
         ]]);

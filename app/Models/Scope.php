@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\ScopeModuleService;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -11,6 +12,11 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class Scope extends DomainModel
 {
     use SoftDeletes;
+
+    public function moduleEnabled(string $module): bool
+    {
+        return ScopeModuleService::enabled($this, $module);
+    }
 
     public function owner(): BelongsTo
     {

@@ -48,6 +48,10 @@ class ContractorAccessService
 
     public function allows(User $user, Scope $scope, string $ability, ?Project $project = null): bool
     {
+        if (str_starts_with($ability, 'equip.') && ! $scope->moduleEnabled('equip')) {
+            return false;
+        }
+
         if (! $user->is_active || $user->status !== 'active') {
             return false;
         }
@@ -127,7 +131,7 @@ class ContractorAccessService
 
     public function canAccessTask(User $user, Scope $scope, Task $task, string $ability = 'task.view'): bool
     {
-        if ($task->scope_id !== $scope->id || ! $this->allows($user, $scope, $ability)) {
+        if (! $scope->moduleEnabled('tasker') || $task->scope_id !== $scope->id || ! $this->allows($user, $scope, $ability)) {
             return false;
         }
 
@@ -199,6 +203,9 @@ class ContractorAccessService
     /** @param Builder<Task> $query */
     public function constrainTasks(Builder $query, User $user, Scope $scope): Builder
     {
+        if (! $scope->moduleEnabled('tasker')) {
+            return $query->whereRaw('1 = 0');
+        }
         if ($scope->owner_id === $user->id) {
             return $query;
         }
@@ -224,7 +231,7 @@ class ContractorAccessService
 
     public function canAccessBook(User $user, Scope $scope, Book $book): bool
     {
-        if ($book->scope_id !== $scope->id || ! $this->allows($user, $scope, 'book.view')) {
+        if (! ScopeModuleService::entityEnabled($scope, $book) || $book->scope_id !== $scope->id || ! $this->allows($user, $scope, 'book.view')) {
             return false;
         }
         if ($scope->owner_id === $user->id) {
@@ -249,6 +256,12 @@ class ContractorAccessService
     /** @param Builder<Book> $query */
     public function constrainBooks(Builder $query, User $user, Scope $scope): Builder
     {
+        if (! $scope->moduleEnabled('booker')) {
+            $query->where('kind', 'lightbook');
+        }
+        if (! $scope->moduleEnabled('content')) {
+            $query->where(fn (Builder $books) => $books->whereNull('kind')->orWhere('kind', '!=', 'lightbook'));
+        }
         if ($scope->owner_id === $user->id) {
             return $query;
         }

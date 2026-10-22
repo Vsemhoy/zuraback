@@ -1,10 +1,11 @@
 <?php
 
-use App\Http\Middleware\EnsureAgentAccount;
 use App\Http\Middleware\AuditAgentApiRequest;
+use App\Http\Middleware\EnsureAgentAccount;
 use App\Http\Middleware\EnsureBookAccess;
 use App\Http\Middleware\EnsureContractorAbility;
 use App\Http\Middleware\EnsureScopeMember;
+use App\Http\Middleware\EnsureScopeModule;
 use App\Http\Middleware\EnsureSpaRequestIsTrusted;
 use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\ResolveContractorActor;
@@ -29,6 +30,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'active' => EnsureUserIsActive::class,
             'spa.request' => EnsureSpaRequestIsTrusted::class,
             'scope.member' => EnsureScopeMember::class,
+            'scope.module' => EnsureScopeModule::class,
             'agent' => EnsureAgentAccount::class,
             'agent.audit' => AuditAgentApiRequest::class,
             'scope.ability' => EnsureContractorAbility::class,

@@ -37,7 +37,7 @@ class ContentNavigationService
 
     public function can(User $actor, Scope $scope, Model $record, bool $write = false): bool
     {
-        if ($record->scope_id !== $scope->id) {
+        if (! ScopeModuleService::entityEnabled($scope, $record) || $record->scope_id !== $scope->id) {
             return false;
         }
         if ($record instanceof Diagram) {

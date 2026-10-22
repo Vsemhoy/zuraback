@@ -56,7 +56,7 @@ class DarklogLinkService
 
     public function canView(User $actor, Scope $scope, Model $target): bool
     {
-        if ($target->scope_id !== $scope->id) {
+        if (! ScopeModuleService::entityEnabled($scope, $target) || $target->scope_id !== $scope->id) {
             return false;
         }
         if ($target instanceof Task || $target instanceof Project || $target instanceof Event || $target instanceof Book) {

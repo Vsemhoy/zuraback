@@ -70,6 +70,9 @@ class DiagramAccessService
 
     public function visible(User $actor, Scope $scope): Builder
     {
+        if (! $scope->moduleEnabled('content')) {
+            return Diagram::query()->whereRaw('1 = 0');
+        }
         $projects = $this->access->constrainProjects(Project::query()->where('scope_id', $scope->id), $actor, $scope)->select('id');
         $query = Diagram::query()->where('scope_id', $scope->id)
             ->where(fn (Builder $q) => $q->where('visibility', 'scope')->orWhere('created_by', $actor->id))

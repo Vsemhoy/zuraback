@@ -57,7 +57,8 @@ Route::prefix('api')->middleware(['spa.request', 'auth', 'active'])->group(funct
     Route::get('/scopes', [ScopeController::class, 'index']);
     Route::post('/scopes', [ScopeController::class, 'store']);
 
-    Route::prefix('/scopes/{scope}')->middleware('scope.member')->group(function (): void {
+    Route::prefix('/scopes/{scope}')->middleware(['scope.member', 'scope.module'])->group(function (): void {
+        Route::patch('/modules', [ScopeController::class, 'updateModules'])->middleware('throttle:30,1');
         Route::prefix('equip')->middleware(['scope.actor', 'scope.ability:equip.view', 'throttle:90,1'])->group(function (): void {
             Route::get('/options', [EquipController::class, 'options']);
             Route::get('/suppliers', [EquipOperationsController::class, 'suppliers']);

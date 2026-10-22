@@ -86,8 +86,8 @@ class DashboardController extends Controller
             'task_updates' => $updates,
             'can_claim' => (bool) $actor->is_executor && $this->access->allows($actor, $scope, 'task.update'),
             'my_tasks' => $myTasks->map(fn (Task $task): array => $this->taskRow($task))->values(),
-            'book_comments' => $this->bookComments($scope, $actor),
-            'kpi' => $this->kpiSnapshot($scope, $actor),
+            'book_comments' => $scope->moduleEnabled('booker') ? $this->bookComments($scope, $actor) : [],
+            'kpi' => $scope->moduleEnabled('kpi') ? $this->kpiSnapshot($scope, $actor) : null,
             'recent' => [
                 'tasks' => $recentTasks->map(fn (Task $task): array => $this->taskRow($task))->values(),
                 'projects' => $recentProjects->map(fn ($project): array => [

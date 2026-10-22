@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\StoreEntityLinkRequest;
 use App\Http\Resources\EntityLinkResource;
 use App\Models\Book;
+use App\Models\BookBlockGroup;
 use App\Models\BookPage;
 use App\Models\EntityLink;
 use App\Models\Project;
@@ -13,6 +14,7 @@ use App\Models\Scope;
 use App\Models\Task;
 use App\Services\ContractorAccessService;
 use App\Services\ContractorContext;
+use App\Services\ScopeModuleService;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -28,6 +30,30 @@ class EntityLinkController extends Controller
     public function index(Request $request, Scope $scope): AnonymousResourceCollection
     {
         $query = $scope->entityLinks()->where('source_type', '!=', 'thing')->where('target_type', '!=', 'thing')->with(['source', 'target'])->latest();
+        $disabled = array_keys(array_filter(Relation::morphMap(), fn ($class, $type): bool => ($module = ScopeModuleService::entityModule($type)) !== null && ! $scope->moduleEnabled($module), ARRAY_FILTER_USE_BOTH));
+        $bookTypes = ['book', 'book_page', 'book_block_group'];
+        $disabled = array_values(array_diff($disabled, $bookTypes));
+        $query->whereNotIn('source_type', $disabled)->whereNotIn('target_type', $disabled);
+        foreach (['source', 'target'] as $side) {
+            $query->where(function ($sideQuery) use ($side, $scope, $bookTypes): void {
+                $sideQuery->whereNotIn($side.'_type', $bookTypes)
+                    ->orWhereHasMorph($side, [Book::class, BookPage::class, BookBlockGroup::class], function ($books, $type) use ($scope): void {
+                        $available = function ($query) use ($scope): void {
+                            if (! $scope->moduleEnabled('booker')) {
+                                $query->where('kind', 'lightbook');
+                            }
+                            if (! $scope->moduleEnabled('content')) {
+                                $query->where('kind', '!=', 'lightbook');
+                            }
+                        };
+                        if ($type === Book::class) {
+                            $available($books);
+                        } else {
+                            $books->whereHas($type === BookPage::class ? 'book' : 'page.book', $available);
+                        }
+                    });
+            });
+        }
         if ($request->filled(['subject_type', 'subject_id'])) {
             $type = (string) $request->query('subject_type');
             $id = (string) $request->query('subject_id');
@@ -46,9 +72,11 @@ class EntityLinkController extends Controller
     {
         $data = $request->validated();
         foreach (['source', 'target'] as $side) {
+
             $model = Relation::getMorphedModel($data["{$side}_type"]);
             abort_unless($model !== null && $model::query()->whereKey($data["{$side}_id"])->where('scope_id', $scope->id)->exists(), 422, "Invalid {$side} for this scope.");
             $entity = $model::query()->find($data["{$side}_id"]);
+            abort_unless(ScopeModuleService::entityEnabled($scope, $entity), 403, 'Модуль отключён владельцем скоупа.');
             $book = $entity instanceof Book ? $entity : ($entity instanceof BookPage ? $entity->book : null);
             if ($book !== null) {
                 abort_unless($this->access->canAccessBook($this->context->actor($request), $scope, $book->loadMissing('project')), 403, 'This book is outside the contractor access boundary.');
@@ -73,6 +101,7 @@ class EntityLinkController extends Controller
     {
         abort_unless($link->scope_id === $scope->id && $link->source_type !== 'thing' && $link->target_type !== 'thing', 404);
         foreach ([$link->source, $link->target] as $entity) {
+            abort_unless($entity && ScopeModuleService::entityEnabled($scope, $entity), 403, 'Модуль отключён владельцем скоупа.');
             if ($entity instanceof Task) {
                 abort_unless($this->access->canAccessTask($this->context->actor($request), $scope, $entity, 'task.update'), 404);
                 $entity->assertEditable();
