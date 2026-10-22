@@ -43,11 +43,12 @@ class ScopeAppearanceTest extends TestCase
         $scope->members()->create(['user_id' => $admin->id, 'role' => 'admin']);
         $scope->members()->create(['user_id' => $member->id, 'role' => 'member']);
 
-        $this->actingAs($admin)->patchJson($url, ['header_theme' => self::THEME])->assertOk()->assertJsonPath('data.can_manage_appearance', true);
+        $theme = [...self::THEME, 'blur_px' => 24];
+        $this->actingAs($admin)->patchJson($url, ['header_theme' => $theme])->assertOk()->assertJsonPath('data.can_manage_appearance', true);
 
-        $this->assertSame(self::THEME, $scope->fresh()->settings['header_theme']);
-        $this->actingAs($member)->getJson('/api/scopes')->assertOk()->assertJsonPath('data.0.settings.header_theme', self::THEME)->assertJsonPath('data.0.can_manage_appearance', false);
-        $this->getJson("/api/scopes/{$scope->id}")->assertOk()->assertJsonPath('data.settings.header_theme', self::THEME)->assertJsonPath('data.can_manage_appearance', false);
+        $this->assertSame($theme, $scope->fresh()->settings['header_theme']);
+        $this->actingAs($member)->getJson('/api/scopes')->assertOk()->assertJsonPath('data.0.settings.header_theme', $theme)->assertJsonPath('data.0.can_manage_appearance', false);
+        $this->getJson("/api/scopes/{$scope->id}")->assertOk()->assertJsonPath('data.settings.header_theme', $theme)->assertJsonPath('data.can_manage_appearance', false);
     }
 
     public function test_solid_theme_accepts_zero_opacity_and_preserves_second_color(): void
@@ -82,7 +83,40 @@ class ScopeAppearanceTest extends TestCase
             'negative angle' => [['angle' => -1], 'header_theme.angle'],
             'large angle' => [['angle' => 361], 'header_theme.angle'],
             'unexpected css' => [['background' => 'url(https://example.invalid)'], 'header_theme'],
+            'negative blur' => [['blur_px' => -1], 'header_theme.blur_px'],
+            'large blur' => [['blur_px' => 41], 'header_theme.blur_px'],
+            'fractional blur' => [['blur_px' => 0.5], 'header_theme.blur_px'],
+            'null blur' => [['blur_px' => null], 'header_theme.blur_px'],
+            'css blur' => [['blur_px' => '16px;url(https://example.invalid)'], 'header_theme.blur_px'],
         ];
+    }
+
+    #[DataProvider('blurBoundaries')]
+    public function test_blur_boundaries_are_saved_and_returned(int $blur): void
+    {
+        [$owner, $scope, $url] = $this->workspace();
+        $theme = [...self::THEME, 'blur_px' => $blur];
+
+        $this->patchJson($url, ['header_theme' => $theme])->assertOk()->assertJsonPath('data.settings.header_theme', $theme);
+
+        $this->assertSame($theme, $scope->fresh()->settings['header_theme']);
+        $this->assertSame(75, $scope->fresh()->settings['kpi']['target']);
+    }
+
+    public static function blurBoundaries(): array
+    {
+        return ['disabled' => [0], 'maximum' => [40]];
+    }
+
+    public function test_legacy_client_preserves_existing_blur_when_updating_colors(): void
+    {
+        [$owner, $scope, $url] = $this->workspace();
+        $scope->update(['settings' => ['kpi' => ['target' => 75], 'header_theme' => [...self::THEME, 'blur_px' => 0]]]);
+        $theme = [...self::THEME, 'start_color' => '#123456'];
+
+        $this->patchJson($url, ['header_theme' => $theme])->assertOk()->assertJsonPath('data.settings.header_theme', [...$theme, 'blur_px' => 0]);
+
+        $this->assertSame(['kpi' => ['target' => 75], 'header_theme' => [...$theme, 'blur_px' => 0]], $scope->fresh()->settings);
     }
 
     public function test_missing_theme_returns_422_without_clearing_existing_settings(): void

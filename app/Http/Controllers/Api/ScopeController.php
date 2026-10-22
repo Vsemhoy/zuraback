@@ -9,6 +9,7 @@ use App\Http\Resources\ScopeResource;
 use App\Models\Scope;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 
 class ScopeController extends Controller
@@ -57,7 +58,12 @@ class ScopeController extends Controller
     {
         DB::transaction(function () use ($request, $scope): void {
             $locked = Scope::query()->whereKey($scope->id)->lockForUpdate()->firstOrFail();
-            $locked->update(['settings' => [...($locked->settings ?? []), 'header_theme' => $request->validated('header_theme')]]);
+            $settings = $locked->settings ?? [];
+            $theme = $request->validated('header_theme');
+            if (! Arr::has($theme, 'blur_px') && Arr::has($settings, 'header_theme.blur_px')) {
+                $theme['blur_px'] = Arr::get($settings, 'header_theme.blur_px');
+            }
+            $locked->update(['settings' => [...$settings, 'header_theme' => $theme]]);
         });
 
         return $this->show($request, $scope->refresh());

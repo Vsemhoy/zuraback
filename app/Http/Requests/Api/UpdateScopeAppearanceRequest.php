@@ -27,13 +27,14 @@ class UpdateScopeAppearanceRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'header_theme' => ['required', 'array:mode,start_color,end_color,start_opacity,end_opacity,angle'],
+            'header_theme' => ['required', 'array:mode,start_color,end_color,start_opacity,end_opacity,angle,blur_px'],
             'header_theme.mode' => ['required', 'in:solid,gradient'],
             'header_theme.start_color' => ['required', 'string', 'regex:/^#[0-9a-fA-F]{6}$/'],
             'header_theme.end_color' => ['required', 'string', 'regex:/^#[0-9a-fA-F]{6}$/'],
             'header_theme.start_opacity' => ['required', 'integer', 'between:0,100'],
             'header_theme.end_opacity' => ['required', 'integer', 'between:0,100'],
             'header_theme.angle' => ['required', 'integer', 'between:0,360'],
+            'header_theme.blur_px' => ['sometimes', 'required', 'integer', 'between:0,40'],
         ];
     }
 }
