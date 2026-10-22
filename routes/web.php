@@ -112,6 +112,7 @@ Route::prefix('api')->middleware(['spa.request', 'auth', 'active'])->group(funct
             Route::delete('/{file}', [FilerController::class, 'destroy'])->whereUlid('file');
         });
         Route::get('/', [ScopeController::class, 'show']);
+        Route::patch('/appearance', [ScopeController::class, 'updateAppearance'])->middleware('throttle:30,1');
         Route::get('/search', [SearchController::class, 'index'])->middleware('scope.actor');
         Route::get('/dashboard', [DashboardController::class, 'show'])->middleware(['scope.actor', 'scope.ability:task.view']);
         Route::get('/avatars', [ContractorAvatarController::class, 'index']);

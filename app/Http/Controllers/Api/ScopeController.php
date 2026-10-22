@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\StoreScopeRequest;
+use App\Http\Requests\Api\UpdateScopeAppearanceRequest;
 use App\Http\Resources\ScopeResource;
 use App\Models\Scope;
 use Illuminate\Http\Request;
@@ -18,8 +19,9 @@ class ScopeController extends Controller
     public function index(Request $request): AnonymousResourceCollection
     {
         $scopes = Scope::query()
-            ->where('owner_id', $request->user()->id)
-            ->orWhereHas('members', fn ($query) => $query->where('user_id', $request->user()->id)->where('is_active', true))
+            ->where(fn ($query) => $query->where('owner_id', $request->user()->id)
+                ->orWhereHas('members', fn ($members) => $members->where('user_id', $request->user()->id)->where('is_active', true)))
+            ->withExists(['members as is_appearance_admin' => fn ($query) => $query->where('user_id', $request->user()->id)->where('is_active', true)->where('role', 'admin')])
             ->latest()
             ->paginate();
 
@@ -44,8 +46,20 @@ class ScopeController extends Controller
     /**
      * Display the specified resource.
      */
-    public function show(Scope $scope): ScopeResource
+    public function show(Request $request, Scope $scope): ScopeResource
     {
+        $scope->loadExists(['members as is_appearance_admin' => fn ($query) => $query->where('user_id', $request->user()->id)->where('is_active', true)->where('role', 'admin')]);
+
         return new ScopeResource($scope);
+    }
+
+    public function updateAppearance(UpdateScopeAppearanceRequest $request, Scope $scope): ScopeResource
+    {
+        DB::transaction(function () use ($request, $scope): void {
+            $locked = Scope::query()->whereKey($scope->id)->lockForUpdate()->firstOrFail();
+            $locked->update(['settings' => [...($locked->settings ?? []), 'header_theme' => $request->validated('header_theme')]]);
+        });
+
+        return $this->show($request, $scope->refresh());
     }
 }
