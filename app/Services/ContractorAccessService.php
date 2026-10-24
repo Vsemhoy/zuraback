@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Builder;
 class ContractorAccessService
 {
     public const ABILITIES = [
+        'fact.view', 'fact.write', 'fact.reveal', 'contact.view', 'contact.write',
         'contractor.manage',
         'contractor.delete',
         'agent.manage_own',
@@ -45,12 +46,15 @@ class ContractorAccessService
     /** @var array<string, array<int, string>> */
     private const ROLE_ABILITIES = [
         'admin' => self::ABILITIES,
-        'member' => ['equip.view', 'agent.manage_own', 'task.view', 'task.create', 'task.update', 'task.assign', 'report.view', 'report.write'],
-        'observer' => ['equip.view', 'task.view', 'report.view'],
+        'member' => ['fact.view', 'fact.write', 'fact.reveal', 'contact.view', 'contact.write', 'equip.view', 'agent.manage_own', 'task.view', 'task.create', 'task.update', 'task.assign', 'report.view', 'report.write'],
+        'observer' => ['fact.view', 'contact.view', 'equip.view', 'task.view', 'report.view'],
     ];
 
     public function allows(User $user, Scope $scope, string $ability, ?Project $project = null): bool
     {
+        if ((str_starts_with($ability, 'fact.') && ! $scope->moduleEnabled('factor')) || (str_starts_with($ability, 'contact.') && ! $scope->moduleEnabled('contactor'))) {
+            return false;
+        }
         if (str_starts_with($ability, 'ledger.') && ! $scope->moduleEnabled('ledger')) {
             return false;
         }

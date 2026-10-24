@@ -128,9 +128,9 @@ class LedgerService
                 if ((int) $data['amount_minor'] <= 0) {
                     throw ValidationException::withMessages(['amount' => 'Сумма должна быть больше нуля.']);
                 }
-                if ($transaction?->exploitation_entry_id && $transaction->amount_minor !== $data['amount_minor']) {
-                    throw ValidationException::withMessages(['amount' => 'Сумму связанного расхода меняйте в Эксплоитере: материалы и работы.']);
-                }
+            }
+            if (array_key_exists('cost_type', $data) && ! ($transaction?->exploitation_entry_id || $entry)) {
+                throw ValidationException::withMessages(['cost_type' => 'Тип затрат задаётся только для расхода эксплуатации.']);
             }
             unset($data['amount'], $data['revision']);
             $transaction ??= new LedgerTransaction(['scope_id' => $scope->id, 'created_by' => $actor->id, 'creator_name' => $actor->name, 'currency' => $account->currency, 'request_hash' => $hash, 'exploitation_entry_id' => $entry?->id]);
@@ -187,11 +187,6 @@ class LedgerService
                 $this->writableAccount($request, $scope, $transaction->target_account_id, 'ledger.manage');
             }
             $before = $transaction->attributesToArray();
-            if ($transaction->exploitation_entry_id) {
-                $entry = $this->editableEntry($request, $scope, $transaction->exploitation_entry_id);
-                $this->entryCurrency($entry, $transaction->account);
-                $transaction->amount_minor = (string) $this->entryCost($entry);
-            }
             $transaction->revision++;
             $transaction->updated_by = $actor->id;
             $transaction->restore();
@@ -206,46 +201,17 @@ class LedgerService
         return DB::transaction(function () use ($request, $scope, $entryId, $data): LedgerTransaction {
             $this->lock($scope);
             $entry = $this->editableEntry($request, $scope, $entryId);
-            $this->revision($entry->revision, $data['entry_revision']);
-            $account = $this->writableAccount($request, $scope, $data['account_id']);
-            $this->entryCurrency($entry, $account);
-            $existing = LedgerTransaction::withTrashed()->where('exploitation_entry_id', $entry->id)->first();
+            $existing = LedgerTransaction::withTrashed()->where('scope_id', $scope->id)->where('idempotency_key', $data['idempotency_key'])->first();
             if ($existing) {
-                abort_unless(! $existing->trashed() && $existing->idempotency_key === $data['idempotency_key'] && $existing->created_by === $this->context->actor($request)->id && $existing->account_id === $account->id, 409, 'У записи уже есть финансовая операция (в том числе в корзине). Откройте её вместо создания дубля.');
+                abort_unless($existing->exploitation_entry_id === $entry->id, 409, 'Ключ запроса уже использован другой операцией.');
+            } else {
+                $this->revision($entry->revision, $data['entry_revision']);
             }
             unset($data['entry_revision']);
 
-            return $this->saveTransaction($request, $scope, [...$data, 'kind' => 'expense', 'title' => $entry->title,
-                'amount' => LedgerMoney::decimal($this->entryCost($entry))], null, $entry);
+            return $this->saveTransaction($request, $scope, [...$data, 'kind' => 'expense',
+                'title' => $data['title'] ?? $existing?->title ?? $entry->title], null, $entry);
         });
-    }
-
-    public function syncExploitation(Request $request, Scope $scope, ExploitationEntry $entry, ?array $before, ?int $ledgerRevision): void
-    {
-        if (! $before || ($before['part_cost'] === $entry->part_cost && $before['labor_cost'] === $entry->labor_cost && $before['currency'] === $entry->currency)) {
-            return;
-        }
-        $transaction = LedgerTransaction::where('exploitation_entry_id', $entry->id)->lockForUpdate()->first();
-        if (! $transaction) {
-            return;
-        }
-        $actor = $this->context->actor($request);
-        $transaction->load(['account', 'targetAccount']);
-        abort_unless($this->access->transaction($actor, $scope, $transaction, 'ledger.write'), 403, 'Для изменения затрат требуется право записи Ledger в проекте связанного счёта.');
-        $this->revision($transaction->revision, $ledgerRevision ?? 0);
-        if ($transaction->account->is_archived) {
-            throw ValidationException::withMessages(['ledger' => 'Сначала верните связанный счёт из архива.']);
-        }
-        $this->entryCurrency($entry, $transaction->account);
-        $snapshot = $transaction->attributesToArray();
-        $transaction->amount_minor = (string) $this->entryCost($entry);
-        if (! $transaction->isDirty()) {
-            return;
-        }
-        $transaction->revision++;
-        $transaction->updated_by = $actor->id;
-        $transaction->save();
-        $this->record($request, $scope, 'ledger_transaction', $transaction->id, 'exploitation_cost_updated', $snapshot, $transaction->attributesToArray());
     }
 
     public function balances(Builder $query): Builder
@@ -257,21 +223,18 @@ class LedgerService
             ->withCount(['transactions as operation_count' => fn (Builder $q) => $q->withTrashed(), 'receivedTransfers as received_count' => fn (Builder $q) => $q->withTrashed()]);
     }
 
-    public function entryLink(Request $request, Scope $scope, ExploitationEntry $entry): ?array
+    public function entrySummary(ExploitationEntry $entry): array
     {
-        $transaction = LedgerTransaction::withTrashed()->where('exploitation_entry_id', $entry->id)->with('account.project')->first();
-        if (! $transaction) {
-            return null;
-        }
-        $actor = $this->context->actor($request);
-        if (! $this->access->account($actor, $scope, $transaction->account)) {
-            return ['linked' => true, 'can_view' => false, 'can_write' => false];
-        }
+        return ['linked' => $entry->ledgerTransactions()->withTrashed()->exists()];
+    }
 
-        return ['linked' => true, 'can_view' => true, 'can_write' => ! $transaction->trashed() && ! $transaction->account->is_archived && $this->access->account($actor, $scope, $transaction->account, 'ledger.write'),
-            'id' => $transaction->id, 'revision' => $transaction->revision, 'account_title' => $transaction->account->title,
-            'project_title' => $transaction->account->project?->title, 'status' => $transaction->status, 'deleted_at' => $transaction->deleted_at,
-            'amount' => LedgerMoney::decimal($transaction->amount_minor), 'currency' => $transaction->currency];
+    public function readableEntry(Request $request, Scope $scope, string $id): ExploitationEntry
+    {
+        abort_unless($scope->moduleEnabled('exploiter'), 403, 'Модуль Эксплоитер отключён.');
+        $entry = ExploitationEntry::where('scope_id', $scope->id)->with('thing')->findOrFail($id);
+        abort_unless($entry->thing && $this->equip->thing($this->context->actor($request), $scope, $entry->thing), 404);
+
+        return $entry;
     }
 
     private function editableEntry(Request $request, Scope $scope, string $id): ExploitationEntry
@@ -283,23 +246,6 @@ class LedgerService
         abort_unless($this->equip->thing($actor, $scope, $entry->thing, 'equip.update'), 403);
 
         return $entry;
-    }
-
-    private function entryCost(ExploitationEntry $entry): int
-    {
-        $amount = LedgerMoney::parse($entry->part_cost) + LedgerMoney::parse($entry->labor_cost);
-        if ($amount <= 0 || $amount > 999999999999) {
-            throw ValidationException::withMessages(['amount' => 'Сумма материалов и работ должна быть положительной и не превышать 9 999 999 999.99.']);
-        }
-
-        return $amount;
-    }
-
-    private function entryCurrency(ExploitationEntry $entry, LedgerAccount $account): void
-    {
-        if ($entry->currency !== $account->currency) {
-            throw ValidationException::withMessages(['currency' => 'Валюта затрат должна совпадать с валютой счёта.']);
-        }
     }
 
     private function category(Scope $scope, LedgerTransaction $transaction, LedgerAccount $account, ?string $oldCategory): void

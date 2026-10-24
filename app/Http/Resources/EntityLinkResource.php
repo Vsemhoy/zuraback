@@ -14,6 +14,13 @@ class EntityLinkResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
-        return parent::toArray($request);
+        $data = parent::toArray($request);
+        foreach (['source', 'target'] as $side) {
+            if (in_array($this->{$side.'_type'}, ['fact', 'contact'], true) && isset($data[$side])) {
+                $data[$side] = array_intersect_key($data[$side], array_flip(['id', 'scope_id', 'label', 'name', 'kind', 'format', 'is_sensitive', 'visibility']));
+            }
+        }
+
+        return $data;
     }
 }

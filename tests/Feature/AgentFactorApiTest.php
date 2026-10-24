@@ -21,7 +21,7 @@ class AgentFactorApiTest extends TestCase
         $scope->members()->create([
             'user_id' => $agent->id,
             'role' => 'member',
-            'permissions' => ['allow' => ['task.view', 'task.create', 'task.update'], 'deny' => []],
+            'permissions' => ['allow' => ['task.view', 'task.create', 'task.update', 'fact.view', 'fact.write'], 'deny' => []],
             'project_access_mode' => 'restricted',
             'book_access_mode' => 'none',
             'joined_at' => now(),
@@ -35,7 +35,7 @@ class AgentFactorApiTest extends TestCase
             'permissions' => ['allow' => ['task.view'], 'deny' => []],
             'is_active' => true,
         ]);
-        $token = $agent->createToken('test', ['task.view', 'task.create', 'task.update'])->plainTextToken;
+        $token = $agent->createToken('test', ['task.view', 'task.create', 'task.update', 'fact.view', 'fact.write'])->plainTextToken;
 
         $fact = $this->withToken($token)->postJson("/api/agent/scopes/{$scope->id}/facts", [
             'label' => 'Frontend repository',
@@ -61,7 +61,7 @@ class AgentFactorApiTest extends TestCase
         ])->assertForbidden();
     }
 
-    public function test_agent_factor_creation_requires_task_create_ability(): void
+    public function test_agent_factor_creation_requires_fact_write_ability(): void
     {
         $owner = User::factory()->create();
         $agent = User::factory()->create(['type' => 'agent', 'status' => 'active', 'is_active' => true]);

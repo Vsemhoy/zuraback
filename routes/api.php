@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\BookController;
 use App\Http\Controllers\Api\BookConversationController;
 use App\Http\Controllers\Api\BookPageController;
 use App\Http\Controllers\Api\BookPageEditingController;
+use App\Http\Controllers\Api\ContactController;
 use App\Http\Controllers\Api\ContractorController;
 use App\Http\Controllers\Api\DarklogController;
 use App\Http\Controllers\Api\EntityLinkController;
@@ -36,6 +37,28 @@ Route::prefix('agent')->middleware(['auth:sanctum', 'active', 'agent', 'agent.au
     Route::get('/scopes', [ScopeController::class, 'index']);
 
     Route::prefix('/scopes/{scope}')->middleware(['scope.member', 'scope.module'])->group(function (): void {
+        Route::prefix('facts')->middleware(['scope.actor', 'scope.ability:fact.view', 'throttle:90,1'])->group(function (): void {
+            Route::get('/options', [FactController::class, 'options']);
+            Route::get('/', [FactController::class, 'index']);
+            Route::post('/', [FactController::class, 'store'])->middleware('scope.ability:fact.write');
+            Route::get('/{fact}', [FactController::class, 'show'])->whereUlid('fact');
+            Route::patch('/{fact}', [FactController::class, 'update'])->whereUlid('fact')->middleware('scope.ability:fact.write');
+            Route::delete('/{fact}', [FactController::class, 'destroy'])->whereUlid('fact')->middleware('scope.ability:fact.write');
+            Route::post('/{fact}/restore', [FactController::class, 'restore'])->whereUlid('fact')->middleware('scope.ability:fact.write');
+            Route::post('/{fact}/reveal', [FactController::class, 'reveal'])->whereUlid('fact')->middleware('scope.ability:fact.reveal');
+        });
+        Route::prefix('contacts')->middleware(['scope.actor', 'scope.ability:contact.view', 'throttle:90,1'])->group(function (): void {
+            Route::get('/options', [ContactController::class, 'options']);
+            Route::get('/', [ContactController::class, 'index']);
+            Route::post('/', [ContactController::class, 'store'])->middleware('scope.ability:contact.write');
+            Route::get('/{contact}', [ContactController::class, 'show'])->whereUlid('contact');
+            Route::patch('/{contact}', [ContactController::class, 'update'])->whereUlid('contact')->middleware('scope.ability:contact.write');
+            Route::delete('/{contact}', [ContactController::class, 'destroy'])->whereUlid('contact')->middleware('scope.ability:contact.write');
+            Route::post('/{contact}/restore', [ContactController::class, 'restore'])->whereUlid('contact')->middleware('scope.ability:contact.write');
+            Route::get('/{contact}/notes', [ContactController::class, 'notes'])->whereUlid('contact');
+            Route::post('/{contact}/notes', [ContactController::class, 'storeNote'])->whereUlid('contact')->middleware('scope.ability:contact.write');
+            Route::delete('/{contact}/notes/{note}', [ContactController::class, 'destroyNote'])->whereUlid(['contact', 'note'])->middleware('scope.ability:contact.write');
+        });
         Route::prefix('ledger')->middleware(['scope.actor', 'scope.ability:ledger.view', 'throttle:90,1'])->group(function (): void {
             require __DIR__.'/ledger.php';
         });
@@ -92,7 +115,6 @@ Route::prefix('agent')->middleware(['auth:sanctum', 'active', 'agent', 'agent.au
         Route::patch('/projects/reorder', [ProjectController::class, 'reorder'])->middleware('scope.ability:task.update');
         Route::get('/projects/{project}', [ProjectController::class, 'show'])->middleware('scope.ability:task.view');
         Route::patch('/projects/{project}', [ProjectController::class, 'update'])->middleware('scope.ability:task.update');
-        Route::post('/facts', [FactController::class, 'store'])->middleware('scope.ability:task.create');
         Route::get('/lore/context', [LoreController::class, 'context'])->middleware('scope.ability:task.view');
         Route::get('/lore/areas', [LoreController::class, 'areas'])->middleware('scope.ability:task.view');
         Route::get('/lore/tags', [LoreController::class, 'tags'])->middleware('scope.ability:task.view');
@@ -103,6 +125,9 @@ Route::prefix('agent')->middleware(['auth:sanctum', 'active', 'agent', 'agent.au
         Route::delete('/lore/{loreEntry}', [LoreController::class, 'destroy'])->middleware('scope.ability:task.delete');
         Route::post('/lore/{loreEntry}/revisions', [LoreController::class, 'revise'])->middleware('scope.ability:task.update');
         Route::patch('/lore/{loreEntry}/revisions/{loreRevision}', [LoreController::class, 'updateRevision'])->middleware('scope.ability:task.update');
+        Route::get('/links', [EntityLinkController::class, 'index'])->middleware(['scope.actor', 'scope.ability:task.view']);
+        Route::get('/links/candidates', [EntityLinkController::class, 'candidates'])->middleware(['scope.actor', 'scope.ability:task.view']);
+        Route::delete('/links/{link}', [EntityLinkController::class, 'destroy'])->middleware(['scope.actor', 'scope.ability:task.update']);
         Route::post('/links', [EntityLinkController::class, 'store'])->middleware('scope.ability:task.update');
         Route::post('/imports/tasker', [AgentTaskerImportController::class, 'store'])->middleware(['scope.ability:task.create', 'scope.ability:task.update']);
         Route::post('/imports/booker', [AgentBookerImportController::class, 'store'])->middleware(['scope.ability:book.create', 'scope.ability:book.update']);

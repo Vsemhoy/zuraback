@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Api;
 
+use App\Models\LedgerTransaction;
 use Illuminate\Validation\Rule;
 
 class SaveLedgerTransactionRequest extends WorkspaceRequest
@@ -25,6 +26,7 @@ class SaveLedgerTransactionRequest extends WorkspaceRequest
             'status' => ['sometimes', Rule::in(['planned', 'posted', 'void'])],
             'category_id' => ['nullable', 'ulid'], 'note_md' => ['nullable', 'string', 'max:1000000'],
             'is_pinned' => ['sometimes', 'boolean'],
+            'cost_type' => ['sometimes', Rule::in(LedgerTransaction::COST_TYPES)],
             'scope_id' => ['prohibited'], 'created_by' => ['prohibited'], 'creator_name' => ['prohibited'],
             'updated_by' => ['prohibited'], 'currency' => ['prohibited'], 'amount_minor' => ['prohibited'],
             'exploitation_entry_id' => ['prohibited'],

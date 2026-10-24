@@ -30,14 +30,20 @@ class AuditAgentApiRequest
     private function record(Request $request, int $status, float $startedAt): void
     {
         $agent = $request->user();
-        if (! $agent?->isAgent()) return;
+        if (! $agent?->isAgent()) {
+            return;
+        }
 
         $token = $agent->currentAccessToken();
         $scope = $request->route('scope');
         $routeParameters = collect($request->route()?->parameters() ?? [])->map(function (mixed $value): mixed {
-            if ($value instanceof Model) return $value->getRouteKey();
+            if ($value instanceof Model) {
+                return $value->getRouteKey();
+            }
+
             return is_scalar($value) || $value === null ? $value : get_debug_type($value);
         })->all();
+        $personal = preg_match('~/(facts|contacts|links)(/|$)~', $request->path()) === 1;
         $isWrite = ! in_array($request->method(), ['GET', 'HEAD', 'OPTIONS'], true);
 
         try {
@@ -58,9 +64,9 @@ class AuditAgentApiRequest
                     'token_comment' => $token?->comment,
                     'path' => '/'.$request->path(),
                     'controller' => $request->route()?->getActionName(),
-                    'route_parameters' => $routeParameters,
-                    'query' => $this->sanitize($request->query()),
-                    'payload' => $isWrite ? $this->sanitize($request->all()) : null,
+                    'route_parameters' => $personal ? '[redacted]' : $routeParameters,
+                    'query' => $personal ? '[redacted]' : $this->sanitize($request->query()),
+                    'payload' => $personal ? '[redacted]' : ($isWrite ? $this->sanitize($request->all()) : null),
                 ],
                 'ip_address' => $request->ip(),
                 'user_agent' => $request->userAgent(),
@@ -72,7 +78,9 @@ class AuditAgentApiRequest
 
     private function sanitize(mixed $value, ?string $key = null): mixed
     {
-        if ($key !== null && preg_match('/token|password|secret|authorization|cookie|credential|api.?key/i', $key)) return '[redacted]';
+        if ($key !== null && preg_match('/token|password|secret|authorization|cookie|credential|api.?key/i', $key)) {
+            return '[redacted]';
+        }
         if (is_array($value)) {
             return collect($value)->mapWithKeys(fn (mixed $item, string|int $itemKey): array => [
                 $itemKey => $this->sanitize($item, (string) $itemKey),
@@ -81,7 +89,9 @@ class AuditAgentApiRequest
         if (is_string($value) && mb_strlen($value) > 4000) {
             return mb_substr($value, 0, 4000).'… [truncated; sha256='.hash('sha256', $value).']';
         }
-        if (is_scalar($value) || $value === null) return $value;
+        if (is_scalar($value) || $value === null) {
+            return $value;
+        }
 
         return '['.get_debug_type($value).']';
     }

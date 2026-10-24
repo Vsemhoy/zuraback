@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Book;
 use App\Models\BookPage;
+use App\Models\Contact;
 use App\Models\Darklog;
 use App\Models\DarklogLink;
 use App\Models\Event;
@@ -22,12 +23,12 @@ class DarklogLinkService
 {
     public const TARGETS = [
         'task' => Task::class, 'event' => Event::class, 'project' => Project::class,
-        'book' => Book::class, 'book_page' => BookPage::class, 'fact' => Fact::class,
+        'book' => Book::class, 'book_page' => BookPage::class, 'fact' => Fact::class, 'contact' => Contact::class,
         'lore' => LoreEntry::class, 'plan_item' => PlanItem::class, 'darklog' => Darklog::class,
         'file' => FilerFile::class,
     ];
 
-    public function __construct(private readonly ContractorAccessService $access, private readonly FilerAccessService $files) {}
+    public function __construct(private readonly ContractorAccessService $access, private readonly FilerAccessService $files, private readonly PrivateRecordAccessService $privateRecords) {}
 
     public function projectAllowed(User $actor, Scope $scope, ?string $projectId, string $ability = 'task.view'): bool
     {
@@ -74,10 +75,8 @@ class DarklogLinkService
 
             return $target->book !== null && $this->access->canAccessBook($actor, $scope, $target->book);
         }
-        if ($target instanceof Fact) {
-            return $this->projectAllowed($actor, $scope, null)
-                && (! $target->is_sensitive || $target->created_by === $actor->id || $scope->owner_id === $actor->id)
-                && (! in_array($target->context, ['private', 'personal'], true) || $target->created_by === $actor->id);
+        if ($target instanceof Fact || $target instanceof Contact) {
+            return $this->privateRecords->read($actor, $scope, $target);
         }
         if ($target instanceof LoreEntry) {
             return ($target->visibility !== 'private' || $target->created_by === $actor->id)
@@ -112,6 +111,8 @@ class DarklogLinkService
             'darklog' => '/darklog/'.$target->scope_id.'/'.$target->id,
             'plan_item' => '/plans?plan='.$target->id,
             'file' => '/files?file='.$target->id,
+            'contact' => '/contacts/'.$target->scope_id.'/'.$target->id,
+            'fact' => '/factor/'.$target->scope_id.'/'.$target->id,
             default => '/factor?fact='.$target->id,
         };
         if ($target instanceof Task) {
@@ -139,6 +140,9 @@ class DarklogLinkService
     {
         $class = self::TARGETS[$type];
         $query = $class::query()->where('scope_id', $scope->id);
+        if (in_array($type, ['fact', 'contact'], true)) {
+            $query = $this->privateRecords->query($class, $actor, $scope);
+        }
         if ($type === 'task') {
             $query = $this->access->constrainTasks($query, $actor, $scope);
         }
@@ -147,7 +151,7 @@ class DarklogLinkService
         }
         if ($term !== '') {
             $field = match ($type) {
-                'fact' => 'label', 'lore' => 'code', 'file' => 'name', default => 'title'
+                'fact' => 'label', 'contact' => 'name', 'lore' => 'code', 'file' => 'name', default => 'title'
             };
             $query->where(function (Builder $q) use ($field, $type, $term): void {
                 $q->where($field, 'like', '%'.$term.'%');

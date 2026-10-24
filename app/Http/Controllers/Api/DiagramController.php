@@ -6,9 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\DiagramRequest;
 use App\Models\ActivityLog;
 use App\Models\BookPage;
+use App\Models\Contact;
 use App\Models\Diagram;
 use App\Models\DiagramAttachment;
 use App\Models\DiagramRevision;
+use App\Models\Fact;
 use App\Models\FilerFile;
 use App\Models\PlanItem;
 use App\Models\Scope;
@@ -18,6 +20,7 @@ use App\Services\DarklogLinkService;
 use App\Services\DiagramAccessService;
 use App\Services\FilerAccessService;
 use App\Services\PlanItemService;
+use App\Services\PrivateRecordAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -205,7 +208,9 @@ class DiagramController extends Controller
         $actor = $this->context->actor($request);
         $target = $this->access->target($actor, $scope, $type, $id);
         abort_unless($target, 404);
-        if (array_key_exists($type, FilerAccessService::SUBJECTS)) {
+        if ($target instanceof Fact || $target instanceof Contact) {
+            abort_unless(app(PrivateRecordAccessService::class)->write($actor, $scope, $target), 403);
+        } elseif (array_key_exists($type, FilerAccessService::SUBJECTS)) {
             abort_unless($this->files->subject($actor, $scope, $target, true), 403);
         } elseif ($target instanceof BookPage) {
             abort_unless($this->contractors->allows($actor, $scope, 'book.update'), 403);

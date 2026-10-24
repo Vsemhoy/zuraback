@@ -10,13 +10,16 @@ use App\Http\Requests\Api\UpdateContractorRequest;
 use App\Http\Resources\ContractorResource;
 use App\Models\ActivityLog;
 use App\Models\BookPage;
+use App\Models\Contact;
 use App\Models\ContractorDelegation;
+use App\Models\Fact;
 use App\Models\LoreRevision;
 use App\Models\ProjectMember;
 use App\Models\Scope;
 use App\Models\User;
 use App\Services\ContractorAccessService;
 use App\Services\LedgerAccessService;
+use App\Services\PrivateRecordAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -587,6 +590,22 @@ class ContractorController extends Controller
             $payload['context'] = array_intersect_key($log->context ?? [], array_flip(['token_id', 'token_name', 'token_comment', 'mutation', 'controller']));
             $payload['context']['path'] = '/api/agent/scopes/{scope}/ledger/[details in Ledger]';
             $payload['context']['restricted'] = true;
+        }
+
+        if (in_array($log->subject_type, ['fact', 'contact'], true)) {
+            $class = $log->subject_type === 'fact' ? Fact::class : Contact::class;
+            $record = $class::withTrashed()->find($log->subject_id);
+            if (! $record || ! app(PrivateRecordAccessService::class)->read($request->user(), $scope, $record)) {
+                $payload['action'] = 'record.restricted';
+                $payload['subject_id'] = null;
+            }
+            $payload['before'] = null;
+            $payload['after'] = ['values_redacted' => true];
+            $payload['context'] = ['values_redacted' => true];
+        }
+        if ($log->subject_type === 'agent_api' && preg_match('~/(facts|contacts|links)(/|$)~', $log->context['path'] ?? '')) {
+            $payload['context'] = array_intersect_key($log->context ?? [], array_flip(['token_id', 'token_name', 'token_comment', 'mutation', 'controller']));
+            $payload['context']['path'] = '/api/agent/scopes/{scope}/[personal records; details redacted]';
         }
 
         return $payload;

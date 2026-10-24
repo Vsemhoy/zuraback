@@ -25,8 +25,10 @@ class FactorApiTest extends TestCase
         ])->assertCreated()->assertJsonPath('data.is_sensitive', true)->json('data');
 
         $this->withHeaders(self::HEADERS)->patchJson("/api/scopes/{$scope->id}/facts/{$fact['id']}", [
-            'value' => 'srv-1c-02.local', 'is_expert' => true, 'is_pinned' => true,
-        ])->assertOk()->assertJsonPath('data.value', 'srv-1c-02.local')->assertJsonPath('data.is_expert', true)->assertJsonPath('data.is_pinned', true);
+            'revision' => $fact['revision'], 'value' => 'srv-1c-02.local', 'is_expert' => true, 'is_pinned' => true,
+        ])->assertOk()->assertJsonPath('data.value', null)->assertJsonPath('data.is_expert', true)->assertJsonPath('data.is_pinned', true);
+        $this->postJson("/api/scopes/{$scope->id}/facts/{$fact['id']}/reveal")->assertOk()->assertJsonPath('data.value', 'srv-1c-02.local');
+        $this->assertDatabaseHas('facts', ['id' => $fact['id'], 'value' => 'srv-1c-02.local', 'revision' => 2]);
     }
 
     public function test_fact_list_is_not_truncated_to_the_first_page(): void

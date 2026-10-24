@@ -20,7 +20,7 @@ class EnsureScopeModule
             'tasks' => 'tasker', 'planner' => 'calendar', 'plans' => 'planner',
             'kpis', 'kpi-profiles' => 'kpi', 'reports' => 'reporter',
             'events', 'event-types', 'event-sections' => 'eventor',
-            'facts' => 'factor', 'lore' => 'lore', 'darklogs' => 'darklog',
+            'contacts' => 'contactor', 'facts' => 'factor', 'lore' => 'lore', 'darklogs' => 'darklog',
             'books', 'book-spaces', 'book-comments' => 'booker',
             'diagrams', 'lightbooks' => 'content', 'equip' => 'equip',
             'exploiter' => 'exploiter',

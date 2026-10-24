@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\SaveLedgerAccountRequest;
 use App\Http\Requests\Api\SaveLedgerCategoryRequest;
 use App\Http\Requests\Api\SaveLedgerTransactionRequest;
+use App\Http\Requests\Api\StoreExploitationExpenseRequest;
 use App\Models\ActivityLog;
 use App\Models\LedgerAccount;
 use App\Models\LedgerCategory;
@@ -102,6 +103,7 @@ class LedgerController extends Controller
             'q' => ['nullable', 'string', 'max:120'], 'from' => ['nullable', 'date_format:Y-m-d'],
             'to' => ['nullable', 'date_format:Y-m-d', Rule::when($request->filled('from'), 'after_or_equal:from')],
             'page' => ['nullable', 'integer', 'min:1'], 'trash' => ['nullable', 'boolean'],
+            'exploitation_entry_id' => ['nullable', 'ulid'], 'cost_type' => ['nullable', Rule::in(LedgerTransaction::COST_TYPES)],
         ]);
         $actor = $this->context->actor($request);
         $accounts = $this->access->accounts($actor, $scope);
@@ -114,6 +116,14 @@ class LedgerController extends Controller
         }
         $ids = (clone $accounts)->select('id');
         $query = LedgerTransaction::where('scope_id', $scope->id)->where(fn (Builder $q) => $q->whereIn('account_id', clone $ids)->orWhereIn('target_account_id', clone $ids));
+        if (! empty($filters['exploitation_entry_id'])) {
+            $entry = $this->service->readableEntry($request, $scope, $filters['exploitation_entry_id']);
+            $query->where('exploitation_entry_id', $entry->id);
+        }
+        if (! empty($filters['cost_type'])) {
+            $query->where(fn (Builder $cost) => $cost->where('cost_type', $filters['cost_type'])
+                ->when($filters['cost_type'] === 'combined', fn (Builder $legacy) => $legacy->orWhere(fn (Builder $old) => $old->whereNotNull('exploitation_entry_id')->whereNull('cost_type'))));
+        }
         if ($request->boolean('trash')) {
             $query->onlyTrashed();
         }
@@ -143,12 +153,19 @@ class LedgerController extends Controller
                 }
             }
         }
+        $costTotals = [];
+        if (! empty($filters['exploitation_entry_id']) && ! $request->boolean('trash')) {
+            $costTotals = (clone $query)->whereIn('status', ['planned', 'posted'])
+                ->selectRaw("currency, COALESCE(cost_type, 'combined') as cost_type, status, SUM(amount_minor) as amount_minor")
+                ->groupByRaw("currency, COALESCE(cost_type, 'combined'), status")->get()
+                ->map(fn ($row): array => ['currency' => $row->currency, 'cost_type' => $row->cost_type, 'status' => $row->status, 'amount_minor' => (string) $row->amount_minor])->all();
+        }
         $permissions = $this->permissions($request, $scope);
-        $page = $query->select(['id', 'scope_id', 'account_id', 'target_account_id', 'category_id', 'exploitation_entry_id', 'created_by', 'creator_name', 'kind', 'amount_minor', 'currency', 'occurred_on', 'status', 'title', 'is_pinned', 'revision', 'created_at', 'updated_at', 'deleted_at'])
+        $page = $query->select(['id', 'scope_id', 'account_id', 'target_account_id', 'category_id', 'exploitation_entry_id', 'cost_type', 'created_by', 'creator_name', 'kind', 'amount_minor', 'currency', 'occurred_on', 'status', 'title', 'is_pinned', 'revision', 'created_at', 'updated_at', 'deleted_at'])
             ->with(self::RELATIONS)->orderByDesc('is_pinned')->orderByDesc('occurred_on')->orderByDesc('id')->paginate(40);
 
         return response()->json(['data' => collect($page->items())->map(fn (LedgerTransaction $transaction): array => $this->presentTransaction($request, $scope, $transaction, $permissions, false)),
-            'meta' => [...$this->pageMeta($page), 'totals' => array_values($totals)]]);
+            'meta' => [...$this->pageMeta($page), 'totals' => array_values($totals), 'cost_totals' => $costTotals]]);
     }
 
     public function show(Request $request, Scope $scope, LedgerTransaction $transaction): JsonResponse
@@ -201,13 +218,9 @@ class LedgerController extends Controller
         return response()->json(['data' => $page->items(), 'meta' => $this->pageMeta($page)]);
     }
 
-    public function linkExploitation(Request $request, Scope $scope, string $entryId): JsonResponse
+    public function linkExploitation(StoreExploitationExpenseRequest $request, Scope $scope, string $entryId): JsonResponse
     {
-        $data = $request->validate([
-            'entry_revision' => ['required', 'integer', 'min:1'], 'account_id' => ['required', 'ulid'], 'idempotency_key' => ['required', 'uuid'],
-            'occurred_on' => ['required', 'date_format:Y-m-d'], 'status' => ['required', Rule::in(['planned', 'posted'])], 'category_id' => ['nullable', 'ulid'],
-        ]);
-        $transaction = $this->service->linkExploitation($request, $scope, $entryId, $data)->load(self::RELATIONS);
+        $transaction = $this->service->linkExploitation($request, $scope, $entryId, $request->validated())->load(self::RELATIONS);
 
         return response()->json(['data' => $this->presentTransaction($request, $scope, $transaction, $this->permissions($request, $scope))], 201);
     }
@@ -258,6 +271,7 @@ class LedgerController extends Controller
             'account' => $sourceVisible ? $side($transaction->account) : null, 'target_account' => $targetVisible ? $side($transaction->targetAccount) : null,
             'category_id' => $sourceVisible ? $transaction->category_id : null, 'category' => $sourceVisible ? $transaction->category : null,
             'has_exploitation' => $transaction->exploitation_entry_id !== null,
+            'cost_type' => $transaction->exploitation_entry_id ? ($transaction->cost_type ?? 'combined') : null,
             'exploitation' => $entryVisible ? $entry->only(['id', 'thing_id', 'title', 'revision']) : null,
             'can_write' => ! $transaction->trashed() && $both('write') && ! $transaction->account->is_archived && ! $transaction->targetAccount?->is_archived,
             'can_manage' => $both('manage'), ...($body ? ['note_md' => $transaction->note_md] : []),

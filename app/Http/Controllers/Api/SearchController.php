@@ -5,10 +5,13 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\BookBlockGroup;
 use App\Models\BookPage;
+use App\Models\Contact;
+use App\Models\Fact;
 use App\Models\LoreEntry;
 use App\Models\Scope;
 use App\Services\ContractorAccessService;
 use App\Services\ContractorContext;
+use App\Services\PrivateRecordAccessService;
 use App\Services\ScopeModuleService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -16,11 +19,12 @@ use Illuminate\Http\Request;
 
 class SearchController extends Controller
 {
-    private const TYPES = ['task', 'project', 'book', 'book_page', 'book_block', 'lore', 'event'];
+    private const TYPES = ['fact', 'contact', 'task', 'project', 'book', 'book_page', 'book_block', 'lore', 'event'];
 
     public function __construct(
         private readonly ContractorAccessService $access,
         private readonly ContractorContext $context,
+        private readonly PrivateRecordAccessService $privateRecords,
     ) {}
 
     public function index(Request $request, Scope $scope): JsonResponse
@@ -226,6 +230,30 @@ class SearchController extends Controller
                 'event', $event->id, $event->title, $event->location,
                 $this->excerpt($event->content, $needle), "/events?event={$event->id}",
                 $event->updated_at, $needle, null, ['status' => $event->status, 'project' => $event->project],
+            )));
+        }
+
+        foreach (['fact' => Fact::class, 'contact' => Contact::class] as $type => $class) {
+            if (! $this->wants($types, $type) || $filters['status']) {
+                continue;
+            }
+            $query = $this->privateRecords->query($class, $actor, $scope);
+            $query->when($filters['project_id'], fn (Builder $q, string $id) => $q->where('project_id', $id));
+            $query->when($filters['user_id'], fn (Builder $q, string $id) => $q->where('created_by', $id));
+            $this->dates($query, $filters);
+            $query->where(function (Builder $q) use ($type, $pattern): void {
+                $q->where($type === 'fact' ? 'label' : 'name', 'like', $pattern);
+                if ($type === 'fact') {
+                    $q->orWhere('context', 'like', $pattern)->orWhere('search_keywords', 'like', $pattern)
+                        ->orWhere(fn (Builder $q) => $q->where('is_sensitive', false)->where('value', 'like', $pattern));
+                } else {
+                    $q->orWhere('company', 'like', $pattern)->orWhere('nickname', 'like', $pattern)->orWhere('role', 'like', $pattern)->orWhere('note_md', 'like', $pattern);
+                }
+            });
+            $results = $results->concat($query->latest('updated_at')->limit(50)->get()->map(fn ($record): array => $this->result(
+                $type, $record->id, $record->label ?? $record->name, $type === 'fact' ? 'Factor' : 'Contactor',
+                $type === 'fact' ? ($record->is_sensitive ? null : $this->excerpt($record->value, $needle)) : $this->excerpt($record->note_md, $needle),
+                '/'.($type === 'fact' ? 'factor' : 'contacts').'/'.$scope->id.'/'.$record->id, $record->updated_at, $needle
             )));
         }
 

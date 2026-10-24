@@ -20,6 +20,7 @@ class ScopeModuleService
             'kpi' => ['label' => 'KPI', 'path' => '/kpi', 'requires' => ['tasker']],
             'reporter' => ['label' => 'Reporter', 'path' => '/reports', 'requires' => ['tasker']],
             'eventor' => ['label' => 'Eventor', 'path' => '/events'],
+            'contactor' => ['label' => 'Contactor · Контакты', 'path' => '/contacts'],
             'factor' => ['label' => 'Factor', 'path' => '/factor'],
             'darklog' => ['label' => 'Darklog', 'path' => '/darklog'],
             'lore' => ['label' => 'Lore', 'path' => '/lore'],
@@ -78,7 +79,7 @@ class ScopeModuleService
         return match ($type) {
             'task' => 'tasker', 'plan_item', 'monthly_task_plan' => 'planner',
             'kpi', 'kpi_profile' => 'kpi', 'monthly_report' => 'reporter',
-            'event', 'event_section' => 'eventor', 'fact' => 'factor', 'darklog' => 'darklog',
+            'event', 'event_section' => 'eventor', 'contact' => 'contactor', 'fact' => 'factor', 'darklog' => 'darklog',
             'lore', 'lore_entry', 'lore_revision' => 'lore',
             'book', 'book_page', 'book_block', 'book_block_group' => 'booker',
             'diagram', 'lightbook' => 'content', 'thing' => 'equip',
@@ -101,7 +102,7 @@ class ScopeModuleService
         $module = $record instanceof Book && $record->kind === 'lightbook'
             ? 'content' : self::entityModule(match (class_basename($record)) {
                 'Task', 'TaskChecklistItem' => 'task', 'PlanItem' => 'plan_item', 'MonthlyReport' => 'monthly_report',
-                'Kpi', 'KpiProfile' => 'kpi', 'Event', 'EventSection' => 'event', 'Fact' => 'fact',
+                'Kpi', 'KpiProfile' => 'kpi', 'Event', 'EventSection' => 'event', 'Contact' => 'contact', 'Fact' => 'fact',
                 'Darklog' => 'darklog', 'LoreEntry', 'LoreRevision' => 'lore',
                 'Book', 'BookPage', 'BookBlock', 'BookBlockGroup' => 'book',
                 'Diagram' => 'diagram', 'Thing' => 'thing', default => '',

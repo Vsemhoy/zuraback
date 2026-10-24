@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Models\Book;
 use App\Models\BookBlockGroup;
 use App\Models\BookPage;
+use App\Models\Contact;
 use App\Models\Darklog;
 use App\Models\Diagram;
 use App\Models\Event;
@@ -17,6 +18,7 @@ use App\Models\Task;
 use App\Models\TaskChecklistItem;
 use App\Models\Thing;
 use App\Models\User;
+use App\Services\PrivateRecordAccessService;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
@@ -34,7 +36,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->scoped(PrivateRecordAccessService::class);
     }
 
     /**
@@ -55,6 +57,7 @@ class AppServiceProvider extends ServiceProvider
             'book_page' => BookPage::class,
             'event' => Event::class,
             'event_section' => EventSection::class,
+            'contact' => Contact::class,
             'fact' => Fact::class,
             'project' => Project::class,
             'kpi' => Kpi::class,
