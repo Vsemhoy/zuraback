@@ -36,6 +36,12 @@ Route::prefix('agent')->middleware(['auth:sanctum', 'active', 'agent', 'agent.au
     Route::get('/scopes', [ScopeController::class, 'index']);
 
     Route::prefix('/scopes/{scope}')->middleware(['scope.member', 'scope.module'])->group(function (): void {
+        Route::prefix('ledger')->middleware(['scope.actor', 'scope.ability:ledger.view', 'throttle:90,1'])->group(function (): void {
+            require __DIR__.'/ledger.php';
+        });
+        Route::prefix('exploiter')->middleware(['scope.actor', 'scope.ability:equip.view', 'throttle:90,1'])->group(function (): void {
+            require __DIR__.'/exploiter.php';
+        });
         Route::prefix('diagrams')->middleware(['scope.actor', 'scope.ability:task.view', 'throttle:90,1'])->group(function (): void {
             require __DIR__.'/diagrams.php';
         });

@@ -26,6 +26,8 @@ class ScopeModuleService
             'booker' => ['label' => 'Booker', 'path' => '/books'],
             'content' => ['label' => 'Контент · схемы и Lightbook', 'path' => '/content'],
             'equip' => ['label' => 'Equip · Экипа', 'path' => '/equip'],
+            'ledger' => ['label' => 'Ledger · Финансы', 'path' => '/ledger'],
+            'exploiter' => ['label' => 'Exploiter · Эксплуатация', 'path' => '/exploiter', 'requires' => ['equip']],
             'contractors' => ['label' => 'Пользователи', 'path' => '/contractors', 'required' => true],
             'departments' => ['label' => 'Отделы', 'path' => '/departments', 'required' => true],
         ];

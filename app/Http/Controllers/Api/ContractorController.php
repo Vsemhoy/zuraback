@@ -16,6 +16,7 @@ use App\Models\ProjectMember;
 use App\Models\Scope;
 use App\Models\User;
 use App\Services\ContractorAccessService;
+use App\Services\LedgerAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -26,7 +27,7 @@ use Illuminate\Support\Facades\DB;
 
 class ContractorController extends Controller
 {
-    public function __construct(private readonly ContractorAccessService $access) {}
+    public function __construct(private readonly ContractorAccessService $access, private readonly LedgerAccessService $ledger) {}
 
     public function index(Request $request, Scope $scope): AnonymousResourceCollection
     {
@@ -350,20 +351,7 @@ class ContractorController extends Controller
             ->latest()->orderByDesc('id')
             ->limit($limit + 1)
             ->get()
-            ->map(fn (ActivityLog $log): array => [
-                'id' => $log->id,
-                '_cursor' => ['at' => $log->created_at->format('Y-m-d H:i:s'), 'id' => $log->id],
-                'kind' => $log->subject_type === 'agent_api' ? 'api' : 'domain',
-                'action' => $log->action,
-                'subject_type' => $log->subject_type,
-                'subject_id' => $log->subject_id,
-                'before' => $log->before,
-                'after' => $log->after,
-                'context' => $log->context,
-                'ip_address' => $log->ip_address,
-                'user_agent' => $log->user_agent,
-                'created_at' => $log->created_at,
-            ]);
+            ->map(fn (ActivityLog $log): array => $this->activityPayload($request, $scope, $log));
 
         $lore = LoreRevision::query()
             ->select(['id', 'lore_entry_id', 'version', 'title', 'status', 'created_at'])
@@ -567,6 +555,41 @@ class ContractorController extends Controller
             ['scope_id' => $scope->id, 'operator_id' => $operator->id, 'contractor_id' => $contractor->id],
             ['assigned_by' => $operator->id, 'is_active' => $canActAs],
         );
+    }
+
+    /** @return array<string, mixed> */
+    private function activityPayload(Request $request, Scope $scope, ActivityLog $log): array
+    {
+        $payload = [
+            'id' => $log->id,
+            '_cursor' => ['at' => $log->created_at->format('Y-m-d H:i:s'), 'id' => $log->id],
+            'kind' => $log->subject_type === 'agent_api' ? 'api' : 'domain',
+            'action' => $log->action,
+            'subject_type' => $log->subject_type,
+            'subject_id' => $log->subject_id,
+            'before' => $log->before,
+            'after' => $log->after,
+            'context' => $log->context,
+            'ip_address' => $log->ip_address,
+            'user_agent' => $log->user_agent,
+            'created_at' => $log->created_at,
+        ];
+
+        if (str_starts_with($log->subject_type, 'ledger_') && ! $this->ledger->activity($request->user(), $scope, $log)) {
+            $payload['action'] = 'ledger.restricted';
+            $payload['subject_id'] = null;
+            $payload['before'] = null;
+            $payload['after'] = ['restricted' => true];
+            $payload['context'] = ['restricted' => true];
+        }
+
+        if ($log->subject_type === 'agent_api' && str_contains($log->context['path'] ?? '', '/ledger')) {
+            $payload['context'] = array_intersect_key($log->context ?? [], array_flip(['token_id', 'token_name', 'token_comment', 'mutation', 'controller']));
+            $payload['context']['path'] = '/api/agent/scopes/{scope}/ledger/[details in Ledger]';
+            $payload['context']['restricted'] = true;
+        }
+
+        return $payload;
     }
 
     /** @return array{id: string, name: string, type: string} */

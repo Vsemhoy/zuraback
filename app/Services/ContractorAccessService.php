@@ -37,6 +37,9 @@ class ContractorAccessService
         'equip.ownership',
         'equip.types',
         'equip.access_all',
+        'ledger.view',
+        'ledger.write',
+        'ledger.manage',
     ];
 
     /** @var array<string, array<int, string>> */
@@ -48,6 +51,9 @@ class ContractorAccessService
 
     public function allows(User $user, Scope $scope, string $ability, ?Project $project = null): bool
     {
+        if (str_starts_with($ability, 'ledger.') && ! $scope->moduleEnabled('ledger')) {
+            return false;
+        }
         if (str_starts_with($ability, 'equip.') && ! $scope->moduleEnabled('equip')) {
             return false;
         }

@@ -23,6 +23,8 @@ class EnsureScopeModule
             'facts' => 'factor', 'lore' => 'lore', 'darklogs' => 'darklog',
             'books', 'book-spaces', 'book-comments' => 'booker',
             'diagrams', 'lightbooks' => 'content', 'equip' => 'equip',
+            'exploiter' => 'exploiter',
+            'ledger' => 'ledger',
             'imports' => str_ends_with($path, '/booker') ? 'booker' : 'tasker',
             default => null,
         };

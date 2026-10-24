@@ -59,6 +59,12 @@ Route::prefix('api')->middleware(['spa.request', 'auth', 'active'])->group(funct
 
     Route::prefix('/scopes/{scope}')->middleware(['scope.member', 'scope.module'])->group(function (): void {
         Route::patch('/modules', [ScopeController::class, 'updateModules'])->middleware('throttle:30,1');
+        Route::prefix('ledger')->middleware(['scope.actor', 'scope.ability:ledger.view', 'throttle:90,1'])->group(function (): void {
+            require __DIR__.'/ledger.php';
+        });
+        Route::prefix('exploiter')->middleware(['scope.actor', 'scope.ability:equip.view', 'throttle:90,1'])->group(function (): void {
+            require __DIR__.'/exploiter.php';
+        });
         Route::prefix('equip')->middleware(['scope.actor', 'scope.ability:equip.view', 'throttle:90,1'])->group(function (): void {
             Route::get('/options', [EquipController::class, 'options']);
             Route::get('/suppliers', [EquipOperationsController::class, 'suppliers']);
