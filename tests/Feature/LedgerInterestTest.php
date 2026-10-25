@@ -286,4 +286,53 @@ class LedgerInterestTest extends TestCase
         $this->assertDatabaseCount('activity_logs', 0);
         $this->assertDatabaseHas('ledger_accounts', ['id' => $account->id, 'revision' => 1]);
     }
+
+    public function test_account_terms_update_rolls_back_when_the_new_projection_is_unsafe(): void
+    {
+        [, $project, , $url] = $this->workspace();
+        $account = $this->credit($project, ['interest_rate_bps' => 0, 'interest_start_on' => '1900-01-01']);
+
+        $this->patchJson("$url/accounts/{$account->id}", ['revision' => 1, 'interest_rate_bps' => 100000])->assertUnprocessable();
+
+        $this->assertDatabaseHas('ledger_accounts', ['id' => $account->id, 'interest_rate_bps' => 0, 'revision' => 1]);
+        $this->assertDatabaseCount('activity_logs', 0);
+    }
+
+    public function test_posting_an_old_plan_rolls_back_when_the_result_is_unsafe(): void
+    {
+        [, $project, , $url] = $this->workspace();
+        $account = $this->credit($project, ['opening_minor' => '0', 'interest_rate_bps' => 100000, 'interest_start_on' => '1900-01-01']);
+        $payment = LedgerTransaction::factory()->create(['account_id' => $account->id, 'occurred_on' => '1900-01-01', 'amount_minor' => '10000']);
+
+        $this->patchJson("$url/transactions/{$payment->id}", ['revision' => 1, 'status' => 'posted'])->assertUnprocessable();
+
+        $this->assertDatabaseHas('ledger_transactions', ['id' => $payment->id, 'status' => 'planned', 'revision' => 1]);
+        $this->assertDatabaseCount('activity_logs', 0);
+    }
+
+    public function test_removing_a_repayment_rolls_back_the_deletion_when_the_result_is_unsafe(): void
+    {
+        [, $project, , $url] = $this->workspace();
+        $account = $this->credit($project, ['opening_minor' => '0', 'interest_rate_bps' => 100000, 'interest_start_on' => '1900-01-01']);
+        LedgerTransaction::factory()->create(['account_id' => $account->id, 'occurred_on' => '1900-01-01', 'amount_minor' => '10000', 'status' => 'posted']);
+        $payment = LedgerTransaction::factory()->create(['account_id' => $account->id, 'occurred_on' => '1900-01-01', 'amount_minor' => '10000', 'status' => 'posted', 'kind' => 'income']);
+
+        $this->deleteJson("$url/transactions/{$payment->id}", ['revision' => 1])->assertUnprocessable();
+
+        $this->assertDatabaseHas('ledger_transactions', ['id' => $payment->id, 'deleted_at' => null, 'revision' => 1]);
+        $this->assertDatabaseCount('activity_logs', 0);
+    }
+
+    public function test_restoring_an_expense_rolls_back_the_restoration_when_the_result_is_unsafe(): void
+    {
+        [, $project, , $url] = $this->workspace();
+        $account = $this->credit($project, ['opening_minor' => '0', 'interest_rate_bps' => 100000, 'interest_start_on' => '1900-01-01']);
+        $payment = LedgerTransaction::factory()->create(['account_id' => $account->id, 'occurred_on' => '1900-01-01', 'amount_minor' => '10000', 'status' => 'posted', 'deleted_at' => now()]);
+
+        $this->postJson("$url/transactions/{$payment->id}/restore", ['revision' => 1])->assertUnprocessable();
+
+        $this->assertSoftDeleted($payment);
+        $this->assertDatabaseHas('ledger_transactions', ['id' => $payment->id, 'revision' => 1]);
+        $this->assertDatabaseCount('activity_logs', 0);
+    }
 }
