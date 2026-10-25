@@ -40,12 +40,14 @@ class LedgerApiTest extends TestCase
         return collect($this->getJson("$url/accounts?archived=1")->assertOk()->json('data'))->keyBy('id')->all();
     }
 
-    public function test_accounts_require_project_and_use_exact_opening_balance_without_credit_types(): void
+    public function test_accounts_require_project_and_use_exact_opening_balance_with_explicit_credit_terms(): void
     {
         [$scope, $project, , $owner, $url] = $this->workspace();
 
         $this->postJson("$url/accounts", ['title' => 'Касса', 'currency' => 'RUB'])->assertUnprocessable()->assertJsonValidationErrors('project_id');
-        $this->postJson("$url/accounts", ['project_id' => $project->id, 'title' => 'Кредит', 'currency' => 'RUB', 'type' => 'credit'])->assertUnprocessable()->assertJsonValidationErrors('type');
+        $credit = $this->postJson("$url/accounts", ['project_id' => $project->id, 'title' => 'Кредит', 'currency' => 'RUB', 'type' => 'credit', 'interest_rate_bps' => 2350, 'interest_start_on' => '2026-10-01'])
+            ->assertCreated()->assertJsonPath('data.interest_rate_bps', 2350)->json('data.id');
+        $this->assertDatabaseHas('ledger_accounts', ['id' => $credit, 'scope_id' => $scope->id, 'project_id' => $project->id, 'created_by' => $owner->id, 'interest_start_on' => '2026-10-01']);
         $id = $this->postJson("$url/accounts", ['project_id' => $project->id, 'title' => 'Касса', 'currency' => 'RUB', 'type' => 'cash', 'opening_balance' => '100.25'])->assertCreated()->assertJsonPath('data.balance_minor', '10025')->json('data.id');
 
         $this->assertDatabaseHas('ledger_accounts', ['id' => $id, 'scope_id' => $scope->id, 'project_id' => $project->id, 'created_by' => $owner->id, 'creator_name' => $owner->name, 'opening_minor' => 10025]);

@@ -15,9 +15,11 @@ use App\Models\Scope;
 use App\Services\ContractorContext;
 use App\Services\EquipAccessService;
 use App\Services\LedgerAccessService;
+use App\Services\LedgerInterestService;
 use App\Services\LedgerMoney;
 use App\Services\LedgerService;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -26,7 +28,7 @@ class LedgerController extends Controller
 {
     private const RELATIONS = ['account.project', 'targetAccount.project', 'category', 'exploitationEntry.thing'];
 
-    public function __construct(private readonly LedgerAccessService $access, private readonly ContractorContext $context, private readonly LedgerService $service, private readonly EquipAccessService $equip) {}
+    public function __construct(private readonly LedgerAccessService $access, private readonly ContractorContext $context, private readonly LedgerService $service, private readonly EquipAccessService $equip, private readonly LedgerInterestService $interest) {}
 
     public function options(Request $request, Scope $scope): JsonResponse
     {
@@ -35,10 +37,11 @@ class LedgerController extends Controller
         $writeProjects = $this->access->projects($actor, $scope, 'ledger.write')->pluck('id')->all();
         $manageProjects = $this->access->projects($actor, $scope, 'ledger.manage')->pluck('id')->all();
         $projects = $this->access->projects($actor, $scope)->orderBy('sort_order')->orderBy('id')->get(['id', 'title', 'key', 'deleted_at']);
+        $accounts = $this->service->balances($this->access->accounts($actor, $scope))->with('project:id,title,key,deleted_at')->orderBy('sort_order')->orderBy('id')->get();
 
         return response()->json(['data' => [
             'projects' => $projects->map(fn ($project): array => [...$project->toArray(), 'can_write' => in_array($project->id, $writeProjects, true), 'can_manage' => in_array($project->id, $manageProjects, true)])->values(),
-            'accounts' => $this->service->balances($this->access->accounts($actor, $scope))->with('project:id,title,key,deleted_at')->orderBy('sort_order')->orderBy('id')->get()->map(fn (LedgerAccount $account): array => $this->presentAccount($account, $permissions))->values(),
+            'accounts' => $this->interest->enrich($accounts)->map(fn (LedgerAccount $account): array => $this->presentAccount($account, $permissions))->values(),
             'categories' => $this->access->categories($actor, $scope)->orderBy('sort_order')->orderBy('id')->get(),
             'currencies' => LedgerMoney::CURRENCIES,
         ]]);
@@ -56,6 +59,7 @@ class LedgerController extends Controller
         }
         $permissions = $this->permissions($request, $scope);
         $page = $this->service->balances($query)->orderBy('sort_order')->orderBy('id')->paginate(40);
+        $this->interest->enrich(new Collection($page->items()));
 
         return response()->json(['data' => collect($page->items())->map(fn (LedgerAccount $account): array => $this->presentAccount($account, $permissions)), 'meta' => $this->pageMeta($page)]);
     }
@@ -65,6 +69,14 @@ class LedgerController extends Controller
         $account = $this->service->saveAccount($request, $scope, $request->validated());
 
         return response()->json(['data' => $this->accountResponse($request, $scope, $account)], 201);
+    }
+
+    public function accountStatement(Request $request, Scope $scope, LedgerAccount $account): JsonResponse
+    {
+        abort_unless($this->access->account($this->context->actor($request), $scope, $account), 404);
+        $data = $request->validate(['month' => ['required', 'date_format:Y-m', 'after_or_equal:1900-01', 'before_or_equal:'.now()->format('Y-m')]]);
+
+        return response()->json(['data' => $this->interest->statement($account, $data['month'])]);
     }
 
     public function updateAccount(SaveLedgerAccountRequest $request, Scope $scope, LedgerAccount $account): JsonResponse
@@ -239,6 +251,7 @@ class LedgerController extends Controller
     private function accountResponse(Request $request, Scope $scope, LedgerAccount $account): array
     {
         $account = $this->service->balances(LedgerAccount::whereKey($account->id))->with('project:id,title,key,deleted_at')->firstOrFail();
+        $this->interest->enrich(new Collection([$account]));
 
         return $this->presentAccount($account, $this->permissions($request, $scope));
     }

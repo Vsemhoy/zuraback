@@ -16,7 +16,7 @@ use Illuminate\Validation\ValidationException;
 
 class LedgerService
 {
-    public function __construct(private readonly LedgerAccessService $access, private readonly ContractorContext $context, private readonly EquipAccessService $equip) {}
+    public function __construct(private readonly LedgerAccessService $access, private readonly ContractorContext $context, private readonly EquipAccessService $equip, private readonly LedgerInterestService $interest) {}
 
     public function saveAccount(Request $request, Scope $scope, array $data, ?LedgerAccount $account = null): LedgerAccount
     {
@@ -31,6 +31,7 @@ class LedgerService
             } else {
                 $this->project($request, $scope, $data['project_id'], 'ledger.manage');
             }
+            $this->interestTerms($data, $account);
             $before = $account?->attributesToArray();
             if (array_key_exists('opening_balance', $data)) {
                 $data['opening_minor'] = (string) LedgerMoney::parse($data['opening_balance'], true, 'opening_balance');
@@ -48,6 +49,7 @@ class LedgerService
                 $account->revision++;
             }
             $account->save();
+            $this->interest->assertSafe($account);
             $this->record($request, $scope, 'ledger_account', $account->id, $before ? 'account_updated' : 'account_created', $before, $account->attributesToArray());
 
             return $account;
@@ -145,6 +147,7 @@ class LedgerService
                 $transaction->revision++;
             }
             $transaction->save();
+            $this->interest->assertSafe($account, ...(isset($target) ? [$target] : []));
             $this->record($request, $scope, 'ledger_transaction', $transaction->id, $before ? 'transaction_updated' : 'transaction_created', $before, $transaction->attributesToArray());
 
             return $transaction;
@@ -165,6 +168,7 @@ class LedgerService
             $transaction->revision++;
             $transaction->save();
             $transaction->delete();
+            $this->interest->assertSafe($transaction->account, ...($transaction->targetAccount ? [$transaction->targetAccount] : []));
             $this->record($request, $scope, 'ledger_transaction', $transaction->id, 'transaction_deleted', $before, $transaction->attributesToArray());
         });
     }
@@ -190,6 +194,7 @@ class LedgerService
             $transaction->revision++;
             $transaction->updated_by = $actor->id;
             $transaction->restore();
+            $this->interest->assertSafe($transaction->account, ...($transaction->targetAccount ? [$transaction->targetAccount] : []));
             $this->record($request, $scope, 'ledger_transaction', $transaction->id, 'transaction_restored', $before, $transaction->attributesToArray());
 
             return $transaction;
@@ -221,6 +226,35 @@ class LedgerService
             ->withSum(['transactions as sent_minor' => fn (Builder $q) => $q->where('kind', 'transfer')->where('status', 'posted')], 'amount_minor')
             ->withSum(['receivedTransfers as received_minor' => fn (Builder $q) => $q->where('status', 'posted')], 'amount_minor')
             ->withCount(['transactions as operation_count' => fn (Builder $q) => $q->withTrashed(), 'receivedTransfers as received_count' => fn (Builder $q) => $q->withTrashed()]);
+    }
+
+    private function interestTerms(array $data, ?LedgerAccount $account): void
+    {
+        $fields = ['type', 'interest_rate_bps', 'interest_start_on', 'interest_end_on'];
+        $terms = array_replace($account?->attributesToArray() ?? ['type' => 'bank', 'interest_rate_bps' => null, 'interest_start_on' => null, 'interest_end_on' => null], array_intersect_key($data, array_flip($fields)));
+        if ($terms['type'] === 'credit') {
+            if (($terms['interest_rate_bps'] ?? null) === null || ($terms['interest_start_on'] ?? null) === null) {
+                throw ValidationException::withMessages(['interest_rate_bps' => 'Для кредитного счёта задайте годовую ставку и дату начала начисления.']);
+            }
+            if (($terms['interest_end_on'] ?? null) !== null && $terms['interest_end_on'] < $terms['interest_start_on']) {
+                throw ValidationException::withMessages(['interest_end_on' => 'Конец начисления не может быть раньше начала.']);
+            }
+        } elseif (($terms['interest_rate_bps'] ?? null) !== null || ($terms['interest_start_on'] ?? null) !== null || ($terms['interest_end_on'] ?? null) !== null) {
+            throw ValidationException::withMessages(['interest_rate_bps' => 'Проценты доступны только кредитному счёту.']);
+        }
+        if (! $account || ! LedgerTransaction::withTrashed()->where(fn (Builder $query) => $query->where('account_id', $account->id)->orWhere('target_account_id', $account->id))->exists()) {
+            return;
+        }
+        foreach ($fields as $field) {
+            if (! array_key_exists($field, $data)) {
+                continue;
+            }
+            $old = $account->getRawOriginal($field);
+            $changed = $field === 'interest_rate_bps' ? ($data[$field] === null ? null : (int) $data[$field]) !== ($old === null ? null : (int) $old) : $data[$field] !== $old;
+            if ($changed && ($account->type === 'credit' || $terms['type'] === 'credit')) {
+                throw ValidationException::withMessages([$field => 'После первой операции кредитные условия фиксируются, чтобы не переписать историю начислений.']);
+            }
+        }
     }
 
     public function entrySummary(ExploitationEntry $entry): array

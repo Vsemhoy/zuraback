@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/options', [LedgerController::class, 'options']);
 Route::get('/accounts', [LedgerController::class, 'accounts']);
+Route::get('/accounts/{account}/statement', [LedgerController::class, 'accountStatement'])->whereUlid('account');
 Route::post('/accounts', [LedgerController::class, 'storeAccount'])->middleware('scope.ability:ledger.manage');
 Route::patch('/accounts/{account}', [LedgerController::class, 'updateAccount'])->whereUlid('account')->middleware('scope.ability:ledger.manage');
 Route::get('/categories', [LedgerController::class, 'categories']);
