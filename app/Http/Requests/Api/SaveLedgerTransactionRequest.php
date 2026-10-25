@@ -17,7 +17,7 @@ class SaveLedgerTransactionRequest extends WorkspaceRequest
         return [
             'account_id' => [$this->isMethod('POST') ? 'required' : 'prohibited', 'ulid'],
             'target_account_id' => [$this->isMethod('PATCH') ? 'prohibited' : 'nullable', 'required_if:kind,transfer', 'ulid'],
-            'kind' => [$this->isMethod('POST') ? 'required' : 'prohibited', Rule::in(['income', 'expense', 'transfer'])],
+            'kind' => [$this->isMethod('POST') ? 'required' : 'prohibited', Rule::in(LedgerTransaction::KINDS)],
             'revision' => [$this->isMethod('PATCH') ? 'required' : 'prohibited', 'integer', 'min:1'],
             'idempotency_key' => [$this->isMethod('POST') ? 'required' : 'prohibited', 'uuid'],
             'title' => [$this->isMethod('POST') ? 'required' : 'sometimes', 'string', 'max:255'],

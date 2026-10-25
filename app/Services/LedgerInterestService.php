@@ -25,6 +25,10 @@ class LedgerInterestService
         $asOf = CarbonImmutable::today();
         $changes = $this->movements($accounts, $asOf);
         foreach ($accounts as $account) {
+            if (! $account->balance_is_known) {
+                $account->forceFill(['balance_today_minor' => null, 'principal_today_minor' => null, 'interest_minor' => null, 'balance_as_of' => $asOf->toDateString()]);
+                continue;
+            }
             $result = $this->calculate($account, $changes[$account->id] ?? [], $asOf);
             foreach ($result['summary'] as $field => $value) {
                 $account->setAttribute($field, $value);
@@ -36,6 +40,9 @@ class LedgerInterestService
 
     public function statement(LedgerAccount $account, string $month): array
     {
+        if (! $account->balance_is_known) {
+            throw ValidationException::withMessages(['account_id' => 'Начальный остаток этого счёта неизвестен. Сначала подтвердите его в настройках.']);
+        }
         $today = CarbonImmutable::today();
         $from = CarbonImmutable::createFromFormat('!Y-m', $month);
         $asOf = $from->endOfMonth()->min($today);
@@ -88,7 +95,7 @@ class LedgerInterestService
         foreach ($out->unionAll($in)->get() as $row) {
             $date = $row->occurred_on->toDateString();
             $amount = $this->minor((string) $row->total_minor);
-            $delta = $row->kind === 'income' ? $amount : -$amount;
+            $delta = in_array($row->kind, ['income', 'adjustment_in'], true) ? $amount : -$amount;
             $result[$row->account_id][$date] = $this->add($result[$row->account_id][$date] ?? 0, $delta);
         }
 

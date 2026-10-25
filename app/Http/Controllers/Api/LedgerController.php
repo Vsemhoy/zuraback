@@ -111,7 +111,7 @@ class LedgerController extends Controller
     {
         $filters = $request->validate([
             'project_id' => ['nullable', 'ulid'], 'account_id' => ['nullable', 'ulid'], 'category_id' => ['nullable', 'ulid'],
-            'kind' => ['nullable', Rule::in(['income', 'expense', 'transfer'])], 'status' => ['nullable', Rule::in(['planned', 'posted', 'void'])],
+            'kind' => ['nullable', Rule::in(LedgerTransaction::KINDS)], 'status' => ['nullable', Rule::in(['planned', 'posted', 'void'])],
             'q' => ['nullable', 'string', 'max:120'], 'from' => ['nullable', 'date_format:Y-m-d'],
             'to' => ['nullable', 'date_format:Y-m-d', Rule::when($request->filled('from'), 'after_or_equal:from')],
             'page' => ['nullable', 'integer', 'min:1'], 'trash' => ['nullable', 'boolean'],
@@ -155,7 +155,7 @@ class LedgerController extends Controller
         }
         $totals = [];
         if (! $request->boolean('trash')) {
-            foreach (['income', 'expense', 'sent', 'received'] as $name) {
+            foreach (['income', 'expense', 'sent', 'received', 'adjustment_in', 'adjustment_out'] as $name) {
                 $total = (clone $query)->where('status', 'posted')->where('kind', in_array($name, ['sent', 'received'], true) ? 'transfer' : $name)
                     ->whereIn($name === 'received' ? 'target_account_id' : 'account_id', clone $ids)
                     ->selectRaw('currency, SUM(amount_minor) as total_minor')->groupBy('currency')->get();
@@ -259,13 +259,13 @@ class LedgerController extends Controller
     private function presentAccount(LedgerAccount $account, array $permissions): array
     {
         $data = $account->attributesToArray();
-        foreach (['income_minor', 'expense_minor', 'sent_minor', 'received_minor'] as $key) {
+        foreach (['income_minor', 'expense_minor', 'sent_minor', 'received_minor', 'adjustment_in_minor', 'adjustment_out_minor'] as $key) {
             $data[$key] = (string) ($account->$key ?? 0);
         }
-        $balance = (int) $account->opening_minor + (int) $data['income_minor'] - (int) $data['expense_minor'] - (int) $data['sent_minor'] + (int) $data['received_minor'];
+        $balance = (int) $account->opening_minor + (int) $data['income_minor'] - (int) $data['expense_minor'] - (int) $data['sent_minor'] + (int) $data['received_minor'] + (int) $data['adjustment_in_minor'] - (int) $data['adjustment_out_minor'];
 
-        return [...$data, 'opening_balance' => LedgerMoney::decimal($account->opening_minor), 'balance_minor' => (string) $balance,
-            'project' => $account->project?->only(['id', 'title', 'key', 'deleted_at']), 'opening_locked' => (($account->operation_count ?? 0) + ($account->received_count ?? 0)) > 0, 'can_write' => isset($permissions['write'][$account->id]) && ! $account->is_archived, 'can_manage' => isset($permissions['manage'][$account->id])];
+        return [...$data, 'opening_balance' => LedgerMoney::decimal($account->opening_minor), 'balance_minor' => $account->balance_is_known ? (string) $balance : null,
+            'project' => $account->project?->only(['id', 'title', 'key', 'deleted_at']), 'opening_locked' => $account->balance_is_known && (($account->operation_count ?? 0) + ($account->received_count ?? 0)) > 0, 'can_write' => isset($permissions['write'][$account->id]) && ! $account->is_archived && $account->balance_is_known, 'can_manage' => isset($permissions['manage'][$account->id])];
     }
 
     private function presentTransaction(Request $request, Scope $scope, LedgerTransaction $transaction, array $permissions, bool $body = true): array

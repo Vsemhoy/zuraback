@@ -31,11 +31,14 @@ class LedgerService
             } else {
                 $this->project($request, $scope, $data['project_id'], 'ledger.manage');
             }
+            if ($account && ! $account->balance_is_known && ($data['balance_is_known'] ?? false) && ! array_key_exists('opening_balance', $data)) {
+                throw ValidationException::withMessages(['opening_balance' => 'Для подтверждения неизвестного остатка укажите начальную сумму явно.']);
+            }
             $this->interestTerms($data, $account);
             $before = $account?->attributesToArray();
             if (array_key_exists('opening_balance', $data)) {
                 $data['opening_minor'] = (string) LedgerMoney::parse($data['opening_balance'], true, 'opening_balance');
-                if ($account && $data['opening_minor'] !== $account->opening_minor && LedgerTransaction::withTrashed()->where(fn (Builder $q) => $q->where('account_id', $account->id)->orWhere('target_account_id', $account->id))->exists()) {
+                if ($account && $account->balance_is_known && $data['opening_minor'] !== $account->opening_minor && LedgerTransaction::withTrashed()->where(fn (Builder $q) => $q->where('account_id', $account->id)->orWhere('target_account_id', $account->id))->exists()) {
                     throw ValidationException::withMessages(['opening_balance' => 'После первой операции начальный остаток нельзя менять. Внесите отдельную корректирующую операцию.']);
                 }
             }
@@ -102,6 +105,15 @@ class LedgerService
             $account = $this->writableAccount($request, $scope, $transaction?->account_id ?? $data['account_id']);
             $targetId = $transaction?->target_account_id ?? $data['target_account_id'] ?? null;
             $kind = $transaction?->kind ?? $data['kind'];
+            if (in_array($kind, LedgerTransaction::ADJUSTMENTS, true)) {
+                abort_unless($this->access->account($actor, $scope, $account, 'ledger.manage'), 403);
+                if (trim($data['note_md'] ?? $transaction?->note_md ?? '') === '') {
+                    throw ValidationException::withMessages(['note_md' => 'Укажите причину корректировки. Она сохранится в истории.']);
+                }
+                if ($entry) {
+                    throw ValidationException::withMessages(['kind' => 'Корректировка остатка не является расходом эксплуатации.']);
+                }
+            }
             if ($kind === 'transfer') {
                 $target = $this->writableAccount($request, $scope, $targetId ?? '');
                 if ($target->id === $account->id || $target->currency !== $account->currency) {
@@ -222,6 +234,8 @@ class LedgerService
     public function balances(Builder $query): Builder
     {
         return $query->withSum(['transactions as income_minor' => fn (Builder $q) => $q->where('kind', 'income')->where('status', 'posted')], 'amount_minor')
+            ->withSum(['transactions as adjustment_in_minor' => fn (Builder $q) => $q->where('kind', 'adjustment_in')->where('status', 'posted')], 'amount_minor')
+            ->withSum(['transactions as adjustment_out_minor' => fn (Builder $q) => $q->where('kind', 'adjustment_out')->where('status', 'posted')], 'amount_minor')
             ->withSum(['transactions as expense_minor' => fn (Builder $q) => $q->where('kind', 'expense')->where('status', 'posted')], 'amount_minor')
             ->withSum(['transactions as sent_minor' => fn (Builder $q) => $q->where('kind', 'transfer')->where('status', 'posted')], 'amount_minor')
             ->withSum(['receivedTransfers as received_minor' => fn (Builder $q) => $q->where('status', 'posted')], 'amount_minor')
@@ -299,6 +313,9 @@ class LedgerService
         $actor = $this->context->actor($request);
         abort_unless($this->access->account($actor, $scope, $account), 404);
         abort_unless($this->access->account($actor, $scope, $account, $ability), 403);
+        if (! $account->balance_is_known) {
+            throw ValidationException::withMessages(['account_id' => 'Сначала подтвердите начальный остаток неизвестного счёта в его настройках.']);
+        }
         if ($account->is_archived) {
             throw ValidationException::withMessages(['account_id' => 'Счёт архивный. Сначала верните его в работу.']);
         }

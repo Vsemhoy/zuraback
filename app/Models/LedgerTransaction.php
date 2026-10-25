@@ -13,6 +13,10 @@ class LedgerTransaction extends DomainModel
 
     public const COST_TYPES = ['labor', 'parts', 'consumables', 'delivery', 'service', 'other', 'combined'];
 
+    public const KINDS = ['income', 'expense', 'transfer', 'adjustment_in', 'adjustment_out'];
+
+    public const ADJUSTMENTS = ['adjustment_in', 'adjustment_out'];
+
     protected $attributes = ['status' => 'planned', 'is_pinned' => false, 'revision' => 1];
 
     public function account(): BelongsTo
