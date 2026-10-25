@@ -10,6 +10,8 @@ class UpdateLightbookRequest extends WorkspaceRequest
     {
         return [
             'title' => ['sometimes', 'required', 'string', 'max:255'],
+            'section_id' => ['sometimes', 'nullable', 'ulid'],
+            'category_id' => ['sometimes', 'nullable', 'ulid'],
             'description' => ['sometimes', 'nullable', 'string'],
             'project_id' => ['sometimes', 'nullable', 'ulid', Rule::exists('projects', 'id')->where('scope_id', $this->route('scope')->id)->whereNull('deleted_at')],
             'visibility' => ['sometimes', Rule::in(['private', 'scope', 'public'])],

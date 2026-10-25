@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Api;
 
 use Illuminate\Contracts\Validation\ValidationRule;
+
 class StoreEventSectionRequest extends WorkspaceRequest
 {
     /**
@@ -24,6 +25,8 @@ class StoreEventSectionRequest extends WorkspaceRequest
             'background_color' => ['nullable', 'string', 'max:9'],
             'icon' => ['nullable', 'string', 'max:64'],
             'visibility' => ['sometimes', 'in:private,scope,public'],
+            'parent_id' => ['sometimes', 'nullable', 'ulid'],
+            'sort_order' => ['sometimes', 'integer', 'min:0', 'max:1000000'],
         ];
     }
 }

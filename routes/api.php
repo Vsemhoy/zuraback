@@ -13,6 +13,8 @@ use App\Http\Controllers\Api\ContactController;
 use App\Http\Controllers\Api\ContractorController;
 use App\Http\Controllers\Api\DarklogController;
 use App\Http\Controllers\Api\EntityLinkController;
+use App\Http\Controllers\Api\EventController;
+use App\Http\Controllers\Api\EventTypeController;
 use App\Http\Controllers\Api\FactController;
 use App\Http\Controllers\Api\FilerController;
 use App\Http\Controllers\Api\LoreController;
@@ -37,6 +39,16 @@ Route::prefix('agent')->middleware(['auth:sanctum', 'active', 'agent', 'agent.au
     Route::get('/scopes', [ScopeController::class, 'index']);
 
     Route::prefix('/scopes/{scope}')->middleware(['scope.member', 'scope.module'])->group(function (): void {
+        require __DIR__.'/content-structure.php';
+        Route::prefix('events')->middleware(['scope.actor', 'scope.ability:task.view'])->group(function (): void {
+            Route::get('/', [EventController::class, 'index']);
+            Route::get('/calendar', [EventController::class, 'calendar']);
+            Route::post('/', [EventController::class, 'store'])->middleware('scope.ability:task.create');
+            Route::get('/{event}', [EventController::class, 'show'])->whereUlid('event');
+            Route::patch('/{event}', [EventController::class, 'update'])->whereUlid('event')->middleware('scope.ability:task.update');
+            Route::delete('/{event}', [EventController::class, 'destroy'])->whereUlid('event')->middleware('scope.ability:task.update');
+        });
+        Route::get('/event-types', [EventTypeController::class, 'index'])->middleware(['scope.actor', 'scope.ability:task.view']);
         Route::prefix('facts')->middleware(['scope.actor', 'scope.ability:fact.view', 'throttle:90,1'])->group(function (): void {
             Route::get('/options', [FactController::class, 'options']);
             Route::get('/', [FactController::class, 'index']);

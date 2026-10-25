@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\ContentFilterRequest;
 use App\Http\Requests\Api\EventCalendarRequest;
 use App\Http\Requests\Api\StoreEventRequest;
 use App\Http\Requests\Api\UpdateEventRequest;
@@ -12,6 +13,7 @@ use App\Models\Event;
 use App\Models\Project;
 use App\Models\Scope;
 use App\Models\User;
+use App\Services\ContentStructureService;
 use App\Services\ContractorAccessService;
 use App\Services\ContractorContext;
 use App\Services\EventRecurrenceService;
@@ -23,9 +25,9 @@ use Illuminate\Http\Response;
 
 class EventController extends Controller
 {
-    public function __construct(private readonly ContractorAccessService $access, private readonly ContractorContext $context, private readonly EventRecurrenceService $recurrence) {}
+    public function __construct(private readonly ContractorAccessService $access, private readonly ContractorContext $context, private readonly EventRecurrenceService $recurrence, private readonly ContentStructureService $structure) {}
 
-    public function index(Request $request, Scope $scope): AnonymousResourceCollection
+    public function index(ContentFilterRequest $request, Scope $scope): AnonymousResourceCollection
     {
         $events = $this->filteredQuery($request, $scope);
         if ($request->filled('from')) {
@@ -81,7 +83,8 @@ class EventController extends Controller
             $events->where(fn (Builder $query) => $query->where('visibility', '!=', 'private')->orWhere('created_by', $actor->id));
         }
 
-        foreach (['project_id', 'type_id', 'created_by', 'requester_id', 'importance', 'status'] as $filter) {
+        $this->structure->filter($events, $request, $scope);
+        foreach (['type_id', 'created_by', 'requester_id', 'importance', 'status'] as $filter) {
             if ($request->filled($filter)) {
                 if ($filter === 'type_id' && $scope->eventTypes()->whereKey($request->query($filter))->where('code', 'none')->exists()) {
                     $events->where(fn (Builder $query) => $query->whereNull('type_id')->orWhere('type_id', $request->query($filter)));
@@ -108,10 +111,11 @@ class EventController extends Controller
         $data = $this->recurrence->prepare($request->validated());
         $actor = $this->context->actor($request);
         $this->assertReferences($scope, $data, $actor);
+        $this->structure->assertReferences($scope, $actor, $data);
         $data['visibility'] ??= 'scope';
         $data['occurred_at'] ??= $data['starts_at'] ?? now();
         $event = $scope->events()->create([...$data, 'created_by' => $actor->id]);
-        $this->log($request, $scope, $event, 'event.created', null, $event->only(['title', 'project_id', 'type_id', 'importance', 'starts_at', 'recurrence_frequency', 'recurrence_until', 'recurrence_timezone', 'recurrence_user_id']));
+        $this->log($request, $scope, $event, 'event.created', null, $event->only(['title', 'project_id', 'section_id', 'category_id', 'type_id', 'importance', 'starts_at', 'recurrence_frequency', 'recurrence_until', 'recurrence_timezone', 'recurrence_user_id']));
 
         return new EventResource($this->loaded($event));
     }
@@ -133,6 +137,7 @@ class EventController extends Controller
             abort_unless($event->created_by === $actor->id || $scope->owner_id === $actor->id, 403, 'Only the event author or scope owner can change access settings.');
         }
         $this->assertReferences($scope, $data, $actor);
+        $this->structure->assertReferences($scope, $actor, $data, $event);
         abort_if(($data['parent_id'] ?? null) === $event->id, 422, 'An event cannot be its own parent.');
         $before = $event->only(array_keys($data));
         $event->update($data);
@@ -162,9 +167,6 @@ class EventController extends Controller
         }
         if (! empty($data['type_id'])) {
             abort_unless($scope->eventTypes()->whereKey($data['type_id'])->exists(), 422, 'Invalid type_id for this scope.');
-        }
-        if (! empty($data['section_id'])) {
-            abort_unless($scope->eventSections()->whereKey($data['section_id'])->exists(), 422, 'Invalid section_id for this scope.');
         }
         if (! empty($data['parent_id'])) {
             abort_unless($scope->events()->whereKey($data['parent_id'])->exists(), 422, 'Invalid parent_id for this scope.');

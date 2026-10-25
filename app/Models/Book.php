@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-#[Fillable(['scope_id', 'kind', 'space_id', 'project_id', 'created_by', 'title', 'slug', 'description', 'structure_mode', 'version_depth', 'visibility', 'comments_enabled', 'cover_color', 'cover_svg_url', 'cover_svg_text', 'export_settings', 'sort_order', 'is_archived', 'meta'])]
+#[Fillable(['scope_id', 'kind', 'space_id', 'project_id', 'section_id', 'category_id', 'created_by', 'title', 'slug', 'description', 'structure_mode', 'version_depth', 'visibility', 'comments_enabled', 'cover_color', 'cover_svg_url', 'cover_svg_text', 'export_settings', 'sort_order', 'is_archived', 'meta'])]
 class Book extends DomainModel
 {
     use HasEntityLinks, SoftDeletes;
@@ -28,6 +28,16 @@ class Book extends DomainModel
     public function project(): BelongsTo
     {
         return $this->belongsTo(Project::class);
+    }
+
+    public function section(): BelongsTo
+    {
+        return $this->belongsTo(EventSection::class, 'section_id');
+    }
+
+    public function category(): BelongsTo
+    {
+        return $this->belongsTo(ContentCategory::class);
     }
 
     public function creator(): BelongsTo

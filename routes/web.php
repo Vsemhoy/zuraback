@@ -59,6 +59,7 @@ Route::prefix('api')->middleware(['spa.request', 'auth', 'active'])->group(funct
     Route::post('/scopes', [ScopeController::class, 'store']);
 
     Route::prefix('/scopes/{scope}')->middleware(['scope.member', 'scope.module'])->group(function (): void {
+        require __DIR__.'/content-structure.php';
         Route::patch('/modules', [ScopeController::class, 'updateModules'])->middleware('throttle:30,1');
         Route::prefix('facts')->middleware(['scope.actor', 'scope.ability:fact.view', 'throttle:90,1'])->group(function (): void {
             Route::get('/options', [FactController::class, 'options']);

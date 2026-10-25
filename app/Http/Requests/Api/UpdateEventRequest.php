@@ -13,6 +13,7 @@ class UpdateEventRequest extends WorkspaceRequest
             'recurrence_user_id' => ['sometimes', 'nullable', 'ulid'],
             'type_id' => ['sometimes', 'nullable', 'ulid'], 'project_id' => ['sometimes', 'nullable', 'ulid'],
             'requester_id' => ['sometimes', 'nullable', 'ulid'], 'section_id' => ['sometimes', 'nullable', 'ulid'],
+            'category_id' => ['sometimes', 'nullable', 'ulid'],
             'parent_id' => ['sometimes', 'nullable', 'ulid'], 'title' => ['sometimes', 'string', 'max:255'],
             'content' => ['sometimes', 'nullable', 'string'], 'format' => ['sometimes', 'in:markdown,text,code'],
             'language' => ['sometimes', 'nullable', 'string', 'max:16'], 'code_language' => ['sometimes', 'nullable', 'string', 'max:32'],

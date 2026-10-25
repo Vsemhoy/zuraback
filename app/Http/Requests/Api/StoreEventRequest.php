@@ -26,6 +26,7 @@ class StoreEventRequest extends WorkspaceRequest
             'project_id' => ['nullable', 'ulid'],
             'requester_id' => ['nullable', 'ulid'],
             'section_id' => ['nullable', 'ulid'],
+            'category_id' => ['nullable', 'ulid'],
             'parent_id' => ['nullable', 'ulid'],
             'title' => ['required', 'string', 'max:255'],
             'content' => ['nullable', 'string'],

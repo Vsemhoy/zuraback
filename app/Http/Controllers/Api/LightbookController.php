@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\ContentFilterRequest;
 use App\Http\Requests\Api\StoreLightbookRequest;
 use App\Http\Requests\Api\UpdateLightbookRequest;
 use App\Http\Resources\LightbookResource;
@@ -11,6 +12,7 @@ use App\Models\Book;
 use App\Models\Project;
 use App\Models\Scope;
 use App\Models\User;
+use App\Services\ContentStructureService;
 use App\Services\ContractorAccessService;
 use App\Services\ContractorContext;
 use Illuminate\Http\Request;
@@ -20,12 +22,17 @@ use Illuminate\Support\Facades\DB;
 
 class LightbookController extends Controller
 {
-    public function __construct(private readonly ContractorAccessService $access, private readonly ContractorContext $context) {}
+    public function __construct(private readonly ContractorAccessService $access, private readonly ContractorContext $context, private readonly ContentStructureService $structure) {}
 
-    public function index(Request $request, Scope $scope): AnonymousResourceCollection
+    public function index(ContentFilterRequest $request, Scope $scope): AnonymousResourceCollection
     {
         $actor = $this->context->actor($request);
-        $items = $this->access->constrainBooks($scope->books()->where('kind', 'lightbook')->getQuery(), $actor, $scope)
+        $query = $this->access->constrainBooks($scope->books()->where('kind', 'lightbook')->getQuery(), $actor, $scope);
+        $this->structure->filter($query, $request, $scope);
+        if ($request->filled('q')) {
+            $query->where(fn ($q) => $q->where('title', 'like', '%'.$request->query('q').'%')->orWhere('description', 'like', '%'.$request->query('q').'%'));
+        }
+        $items = $query
             ->with(['page:id,book_id,title,updated_at', 'project:id,title,key,color', 'creator:id,name'])
             ->latest('updated_at')->orderByDesc('id')->get();
 
@@ -37,6 +44,7 @@ class LightbookController extends Controller
         $data = $request->validated();
         $actor = $this->context->actor($request);
         $this->assertProject($scope, $data['project_id'] ?? null, $actor);
+        $this->structure->assertReferences($scope, $actor, $data);
         $lightbook = DB::transaction(function () use ($scope, $actor, $data): Book {
             $lightbook = $scope->books()->create([
                 ...$data,
@@ -69,7 +77,8 @@ class LightbookController extends Controller
     {
         $this->authorize($request, $scope, $book);
         $data = $request->validated();
-        $this->assertProject($scope, $data['project_id'] ?? $book->project_id, $this->context->actor($request));
+        $this->assertProject($scope, array_key_exists('project_id', $data) ? $data['project_id'] : $book->project_id, $this->context->actor($request));
+        $this->structure->assertReferences($scope, $this->context->actor($request), $data, $book);
         DB::transaction(function () use ($book, $data): void {
             $book->update($data);
             $book->page()->update(array_intersect_key($data, array_flip(['title', 'visibility'])));
@@ -112,7 +121,7 @@ class LightbookController extends Controller
             return;
         }
         $project = Project::query()->where('scope_id', $scope->id)->findOrFail($projectId);
-        abort_unless($this->access->canAccessProject($actor, $scope, $project), 403);
+        abort_unless($this->access->canAccessProject($actor, $scope, $project, 'book.view'), 403);
     }
 
     private function load(Book $book): Book

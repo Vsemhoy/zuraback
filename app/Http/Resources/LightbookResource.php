@@ -13,6 +13,8 @@ class LightbookResource extends JsonResource
             'id' => $this->id,
             'scope_id' => $this->scope_id,
             'project_id' => $this->project_id,
+            'section_id' => $this->section_id,
+            'category_id' => $this->category_id,
             'created_by' => $this->created_by,
             'title' => $this->title,
             'description' => $this->description,

@@ -6,16 +6,22 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\StoreEventSectionRequest;
 use App\Http\Resources\EventSectionResource;
 use App\Models\Scope;
+use App\Services\ContentStructureService;
+use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 class EventSectionController extends Controller
 {
+    public function __construct(private readonly ContentStructureService $structure) {}
+
     /**
      * Display a listing of the resource.
      */
-    public function index(Scope $scope): AnonymousResourceCollection
+    public function index(Request $request, Scope $scope): AnonymousResourceCollection
     {
-        return EventSectionResource::collection($scope->eventSections()->orderBy('sort_order')->get());
+        $actor = $this->structure->authorize($request, $scope, 'eventor');
+
+        return EventSectionResource::collection($this->structure->sections($scope, $actor));
     }
 
     /**
@@ -23,7 +29,7 @@ class EventSectionController extends Controller
      */
     public function store(StoreEventSectionRequest $request, Scope $scope): EventSectionResource
     {
-        $section = $scope->eventSections()->create([...$request->validated(), 'created_by' => $request->user()->id]);
+        $section = $this->structure->save($request, $scope, 'eventor', 'sections', $request->validated());
 
         return new EventSectionResource($section);
     }

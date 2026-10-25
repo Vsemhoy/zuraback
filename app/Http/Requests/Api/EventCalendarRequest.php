@@ -6,7 +6,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Validation\Validator;
 
-class EventCalendarRequest extends WorkspaceRequest
+class EventCalendarRequest extends ContentFilterRequest
 {
     /**
      * Get the validation rules that apply to the request.
@@ -16,6 +16,7 @@ class EventCalendarRequest extends WorkspaceRequest
     public function rules(): array
     {
         return [
+            ...parent::rules(),
             'from' => ['required', 'date_format:Y-m-d'],
             'until' => ['required', 'date_format:Y-m-d', 'after_or_equal:from'],
             'timezone' => ['sometimes', 'required', 'timezone'],
