@@ -8,10 +8,12 @@ use App\Http\Requests\Api\SaveLedgerCategoryRequest;
 use App\Http\Requests\Api\SaveLedgerTransactionRequest;
 use App\Http\Requests\Api\StoreExploitationExpenseRequest;
 use App\Models\ActivityLog;
+use App\Models\EntityLink;
 use App\Models\LedgerAccount;
 use App\Models\LedgerCategory;
 use App\Models\LedgerTransaction;
 use App\Models\Scope;
+use App\Models\Thing;
 use App\Services\ContractorContext;
 use App\Services\EquipAccessService;
 use App\Services\LedgerAccessService;
@@ -286,9 +288,20 @@ class LedgerController extends Controller
             'has_exploitation' => $transaction->exploitation_entry_id !== null,
             'cost_type' => $transaction->exploitation_entry_id ? ($transaction->cost_type ?? 'combined') : null,
             'exploitation' => $entryVisible ? $entry->only(['id', 'thing_id', 'title', 'revision']) : null,
-            'can_write' => ! $transaction->trashed() && $both('write') && ! $transaction->account->is_archived && ! $transaction->targetAccount?->is_archived,
-            'can_manage' => $both('manage'), ...($body ? ['note_md' => $transaction->note_md] : []),
+            'can_write' => ! $transaction->trashed() && $both('write') && (! in_array($transaction->kind, LedgerTransaction::ADJUSTMENTS, true) || $both('manage')) && ! $transaction->account->is_archived && ! $transaction->targetAccount?->is_archived && $transaction->account->balance_is_known && ($transaction->targetAccount?->balance_is_known ?? true),
+            'can_manage' => $both('manage'), ...($body ? ['note_md' => $transaction->note_md, 'related_things' => $this->relatedThings($request, $scope, $transaction)] : []),
         ];
+    }
+
+    private function relatedThings(Request $request, Scope $scope, LedgerTransaction $transaction): array
+    {
+        if (! $scope->moduleEnabled('equip')) {
+            return [];
+        }
+        $ids = EntityLink::where('scope_id', $scope->id)->where('source_type', 'ledger_transaction')->where('source_id', $transaction->id)->where('target_type', 'thing')->pluck('target_id');
+        $query = $this->equip->constrain(Thing::whereIn('id', $ids), $this->context->actor($request), $scope);
+
+        return $query->get(['id', 'name'])->map(fn (Thing $thing): array => ['id' => $thing->id, 'name' => $thing->name])->all();
     }
 
     private function pageMeta(mixed $page): array

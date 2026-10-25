@@ -35,7 +35,7 @@ class EntityLinkController extends Controller
      */
     public function index(Request $request, Scope $scope): AnonymousResourceCollection
     {
-        $query = $scope->entityLinks()->where('source_type', '!=', 'thing')->where('target_type', '!=', 'thing')->with(['source', 'target'])->latest();
+        $query = $scope->entityLinks()->whereNotIn('source_type', ['thing', 'ledger_transaction', 'ledger_account'])->whereNotIn('target_type', ['thing', 'ledger_transaction', 'ledger_account'])->with(['source', 'target'])->latest();
         $actor = $this->context->actor($request);
         foreach (['source', 'target'] as $side) {
             $query->where(function ($q) use ($side, $actor, $scope): void {

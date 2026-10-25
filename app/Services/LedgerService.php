@@ -34,6 +34,9 @@ class LedgerService
             if ($account && ! $account->balance_is_known && ($data['balance_is_known'] ?? false) && ! array_key_exists('opening_balance', $data)) {
                 throw ValidationException::withMessages(['opening_balance' => 'Для подтверждения неизвестного остатка укажите начальную сумму явно.']);
             }
+            if ($account?->balance_is_known && array_key_exists('balance_is_known', $data) && ! $data['balance_is_known']) {
+                throw ValidationException::withMessages(['balance_is_known' => 'Подтверждённый остаток нельзя сделать неизвестным. Используйте корректирующую операцию.']);
+            }
             $this->interestTerms($data, $account);
             $before = $account?->attributesToArray();
             if (array_key_exists('opening_balance', $data)) {
@@ -107,7 +110,7 @@ class LedgerService
             $kind = $transaction?->kind ?? $data['kind'];
             if (in_array($kind, LedgerTransaction::ADJUSTMENTS, true)) {
                 abort_unless($this->access->account($actor, $scope, $account, 'ledger.manage'), 403);
-                if (trim($data['note_md'] ?? $transaction?->note_md ?? '') === '') {
+                if (trim((string) (array_key_exists('note_md', $data) ? $data['note_md'] : $transaction?->note_md)) === '') {
                     throw ValidationException::withMessages(['note_md' => 'Укажите причину корректировки. Она сохранится в истории.']);
                 }
                 if ($entry) {

@@ -12,6 +12,7 @@ use App\Models\Project;
 use App\Models\Scope;
 use App\Models\Thing;
 use App\Models\User;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Arr;
@@ -20,6 +21,7 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use LogicException;
 use Symfony\Component\Uid\Ulid;
+use Symfony\Component\Uid\Uuid;
 
 class LegacyLedgerImportService
 {
@@ -176,7 +178,7 @@ class LegacyLedgerImportService
                     'occurred_on' => $row['occurred_at'], 'status' => $row['is_disabled'] ? 'void' : ($row['status'] === 'pending' ? 'planned' : 'posted'),
                     'title' => trim($row['title'] ?? '') ?: 'Операция из прежней системы', 'note_md' => trim($note) ?: null, 'is_pinned' => (bool) $row['is_pinned'],
                     'exploitation_entry_id' => $entry?->id, 'cost_type' => $entry ? (['part' => 'parts', 'consumption' => 'consumables'][$row['cost_type'] ?? ''] ?? $row['cost_type'] ?? 'combined') : null,
-                    'idempotency_key' => (string) Str::uuid5('9f98d94d-85f1-481c-aeba-3b898008f8f8', self::SOURCE.'|'.$scope->id.'|'.$id),
+                    'idempotency_key' => Uuid::v5(Uuid::fromString('9f98d94d-85f1-481c-aeba-3b898008f8f8'), self::SOURCE.'|'.$scope->id.'|'.$id)->toRfc4122(),
                     'request_hash' => hash('sha256', self::SOURCE.'|'.$id), ...Arr::only($row, ['created_at', 'updated_at', 'deleted_at'])];
                 $op = $this->op($scope, $pair ? 'ledger_transfer' : 'ledger_transaction', $id, LedgerTransaction::class, $payload, ['row' => $row, 'pair' => $pair, 'policy' => 'operations-only-v1']);
                 $ops[] = $op;
@@ -211,6 +213,7 @@ class LegacyLedgerImportService
                 $action = $op['registered'] ? 'skip' : 'create';
                 $counts[$action][$op['kind']] = ($counts[$action][$op['kind']] ?? 0) + 1;
             }
+            $verifiedAccounts = 0;
             if ($commit) {
                 $batch = Str::lower((string) Str::ulid());
                 foreach ($ops as $op) {
@@ -229,11 +232,41 @@ class LegacyLedgerImportService
                         'source_hash' => $op['hash'], 'snapshot' => $op['archive']]);
                 }
                 $this->interest->assertSafe(...LedgerAccount::whereIn('id', array_values($maps['accounts']))->get()->all());
+                if ($counts['skip'] === []) {
+                    $verifiedAccounts = $this->verifyPrincipalBalances($accounts, $rows['transactions'], $maps['accounts']);
+                }
             }
 
             return ['dry_run' => ! $commit, 'planned' => array_sum($counts['create']), 'created' => $commit ? array_sum($counts['create']) : 0,
-                'counts' => $counts, 'warnings' => $warnings, 'source_transactions' => count($rows['transactions']), 'native_transactions' => count(array_unique($maps['transactions'])), 'maps' => $maps];
+                'counts' => $counts, 'warnings' => $warnings, 'verified_accounts' => $verifiedAccounts, 'source_transactions' => count($rows['transactions']), 'native_transactions' => count(array_unique($maps['transactions'])), 'maps' => $maps];
         });
+    }
+
+    /** Reconcile original per-account legs independently of normalized native transfers and cached totals. */
+    private function verifyPrincipalBalances(array $accounts, array $transactions, array $maps): int
+    {
+        $expected = array_map(fn (array $row): int => (int) $row['opening_balance'], $accounts);
+        $today = CarbonImmutable::today()->toDateString();
+        foreach ($transactions as $row) {
+            if ($row['deleted_at'] !== null || $row['is_disabled'] || $row['status'] !== 'cleared' || $row['occurred_at'] > $today) {
+                continue;
+            }
+            $negative = in_array($row['flow_kind'], ['expense', 'transfer_out'], true) || ($row['flow_kind'] === 'reconciliation' && $row['is_negative']);
+            $expected[Str::lower($row['account_id'])] += ($negative ? -1 : 1) * (int) $row['amount'];
+        }
+        $native = $this->interest->enrich(LedgerAccount::whereIn('id', array_values($maps))->get())->keyBy('id');
+        $verified = 0;
+        foreach ($accounts as $id => $row) {
+            if ($row['_orphan'] ?? false) {
+                continue;
+            }
+            if ((string) $expected[$id] !== $native[$maps[$id]]->principal_today_minor) {
+                throw new LogicException('Ledger principal reconciliation failed; all import writes were rolled back.');
+            }
+            $verified++;
+        }
+
+        return $verified;
     }
 
     private function op(Scope $scope, string $kind, string $id, string $class, array $payload, array $archive): array
@@ -241,7 +274,9 @@ class LegacyLedgerImportService
         $id = Str::lower($id);
         $hash = hash('sha256', json_encode($this->canonical($archive), JSON_THROW_ON_ERROR));
         $mapping = LegacyImportRecord::where('source', self::SOURCE)->where('source_type', $kind)->where('source_id', $id)->lockForUpdate()->first();
-        $type = match ($class) { Project::class => 'project', LedgerAccount::class => 'ledger_account', LedgerCategory::class => 'ledger_category', LedgerTransaction::class => 'ledger_transaction', EntityLink::class => 'entity_link' };
+        $type = match ($class) {
+            Project::class => 'project', LedgerAccount::class => 'ledger_account', LedgerCategory::class => 'ledger_category', LedgerTransaction::class => 'ledger_transaction', EntityLink::class => 'entity_link'
+        };
         $binary = substr(Ulid::fromString(Ulid::isValid($id) ? $id : $scope->id)->toBinary(), 0, 6).substr(hash('sha256', self::SOURCE.'|'.$scope->id.'|'.$kind.'|'.$id, true), 0, 10);
         $targetId = $mapping?->target_id ?? Str::lower(Ulid::fromBinary($binary)->toBase32());
         $query = in_array(SoftDeletes::class, class_uses_recursive($class), true) ? $class::withTrashed() : $class::query();

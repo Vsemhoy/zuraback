@@ -23,10 +23,11 @@ class LedgerInterestService
     public function enrich(Collection $accounts): Collection
     {
         $asOf = CarbonImmutable::today();
-        $changes = $this->movements($accounts, $asOf);
+        $changes = $this->movements($accounts->filter(fn (LedgerAccount $account): bool => $account->balance_is_known), $asOf);
         foreach ($accounts as $account) {
             if (! $account->balance_is_known) {
                 $account->forceFill(['balance_today_minor' => null, 'principal_today_minor' => null, 'interest_minor' => null, 'balance_as_of' => $asOf->toDateString()]);
+
                 continue;
             }
             $result = $this->calculate($account, $changes[$account->id] ?? [], $asOf);
