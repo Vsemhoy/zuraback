@@ -281,6 +281,7 @@ class LedgerController extends Controller
 
         return [
             ...$transaction->only(['id', 'scope_id', 'created_by', 'creator_name', 'kind', 'amount_minor', 'currency', 'occurred_on', 'status', 'title', 'is_pinned', 'revision', 'created_at', 'updated_at', 'deleted_at']),
+            'occurred_on' => $transaction->occurred_on->toDateString(),
             'amount' => LedgerMoney::decimal($transaction->amount_minor), 'account_id' => $sourceVisible ? $transaction->account_id : null,
             'target_account_id' => $targetVisible ? $transaction->target_account_id : null,
             'account' => $sourceVisible ? $side($transaction->account) : null, 'target_account' => $targetVisible ? $side($transaction->targetAccount) : null,
