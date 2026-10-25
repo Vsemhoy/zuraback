@@ -169,6 +169,48 @@ class LedgerService
         });
     }
 
+    public function moveTransaction(Request $request, Scope $scope, LedgerTransaction $transaction, array $data): LedgerTransaction
+    {
+        return DB::transaction(function () use ($request, $scope, $transaction, $data): LedgerTransaction {
+            $this->lock($scope);
+            $transaction = LedgerTransaction::where('scope_id', $scope->id)->with(['account', 'targetAccount'])->lockForUpdate()->findOrFail($transaction->id);
+            $actor = $this->context->actor($request);
+            abort_unless($this->access->transaction($actor, $scope, $transaction), 404);
+            $ability = in_array($transaction->kind, LedgerTransaction::ADJUSTMENTS, true) ? 'ledger.manage' : 'ledger.write';
+            abort_unless($this->access->transaction($actor, $scope, $transaction, $ability), 403);
+            $this->revision($transaction->revision, $data['revision']);
+            $oldAccounts = [$this->writableAccount($request, $scope, $transaction->account_id, $ability)];
+            if ($transaction->target_account_id) {
+                $oldAccounts[] = $this->writableAccount($request, $scope, $transaction->target_account_id, $ability);
+            }
+            if ($data['side'] === 'target' && $transaction->kind !== 'transfer') {
+                throw ValidationException::withMessages(['side' => 'Вторая сторона есть только у перевода.']);
+            }
+            $field = $data['side'] === 'target' ? 'target_account_id' : 'account_id';
+            $oldAccount = $data['side'] === 'target' ? $oldAccounts[1] : $oldAccounts[0];
+            $destination = $this->writableAccount($request, $scope, $data['account_id'], $ability);
+            if ($destination->currency !== $transaction->currency || $destination->project_id !== $oldAccount->project_id) {
+                throw ValidationException::withMessages(['account_id' => 'Перенос возможен между счетами одного проекта и одной валюты.']);
+            }
+            $otherId = $data['side'] === 'target' ? $transaction->account_id : $transaction->target_account_id;
+            if ($destination->id === $otherId) {
+                throw ValidationException::withMessages(['account_id' => 'Счета перевода должны различаться.']);
+            }
+            $before = $transaction->attributesToArray();
+            $transaction->fill([$field => $destination->id, 'occurred_on' => $data['occurred_on']]);
+            if (! $transaction->isDirty()) {
+                return $transaction;
+            }
+            $transaction->updated_by = $actor->id;
+            $transaction->revision++;
+            $transaction->save();
+            $this->interest->assertSafe(...[...$oldAccounts, $destination]);
+            $this->record($request, $scope, 'ledger_transaction', $transaction->id, 'transaction_moved', $before, $transaction->attributesToArray());
+
+            return $transaction;
+        });
+    }
+
     public function deleteTransaction(Request $request, Scope $scope, LedgerTransaction $transaction, int $revision): void
     {
         DB::transaction(function () use ($request, $scope, $transaction, $revision): void {

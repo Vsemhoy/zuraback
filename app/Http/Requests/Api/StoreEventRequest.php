@@ -44,7 +44,6 @@ class StoreEventRequest extends WorkspaceRequest
             'is_locked' => ['sometimes', 'boolean'],
             'comments_enabled' => ['sometimes', 'nullable', 'boolean'],
             'is_blurred' => ['sometimes', 'boolean'],
-            'diagram' => ['sometimes', 'nullable', 'array'],
             'attachments' => ['sometimes', 'nullable', 'array', 'max:100'],
             'attachments.*.url' => ['required', 'url', 'max:2048'],
             'attachments.*.label' => ['nullable', 'string', 'max:255'],

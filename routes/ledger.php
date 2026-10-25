@@ -3,6 +3,9 @@
 use App\Http\Controllers\Api\LedgerController;
 use Illuminate\Support\Facades\Route;
 
+Route::get('/flow', [LedgerController::class, 'flow']);
+Route::get('/report', [LedgerController::class, 'report']);
+Route::post('/transactions/{transaction}/move', [LedgerController::class, 'moveTransaction'])->whereUlid('transaction')->middleware('scope.ability:ledger.write');
 Route::get('/options', [LedgerController::class, 'options']);
 Route::get('/accounts', [LedgerController::class, 'accounts']);
 Route::get('/accounts/{account}/statement', [LedgerController::class, 'accountStatement'])->whereUlid('account');

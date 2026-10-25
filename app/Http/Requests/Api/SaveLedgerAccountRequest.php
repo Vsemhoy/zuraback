@@ -29,6 +29,7 @@ class SaveLedgerAccountRequest extends WorkspaceRequest
             'sort_order' => ['sometimes', 'integer', 'between:0,1000000'],
             'is_archived' => ['sometimes', 'boolean'],
             'balance_is_known' => ['sometimes', 'boolean'],
+            'exclude_from_reports' => ['sometimes', 'boolean'],
             'scope_id' => ['prohibited'], 'opening_minor' => ['prohibited'], 'created_by' => ['prohibited'], 'creator_name' => ['prohibited'],
         ];
     }

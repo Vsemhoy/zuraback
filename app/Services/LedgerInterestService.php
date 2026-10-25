@@ -39,6 +39,23 @@ class LedgerInterestService
         return $accounts;
     }
 
+    /** Daily balances for already authorized accounts, using the same calculation as statements. */
+    public function dailyBalances(Collection $accounts, CarbonImmutable $from, CarbonImmutable $to): array
+    {
+        $asOf = $to->min(CarbonImmutable::today());
+        if ($from->gt($asOf)) {
+            return [];
+        }
+        $known = $accounts->filter(fn (LedgerAccount $account): bool => $account->balance_is_known);
+        $changes = $this->movements($known, $asOf);
+        $result = [];
+        foreach ($known as $account) {
+            $result[$account->id] = $this->calculate($account, $changes[$account->id] ?? [], $asOf, $from)['days'];
+        }
+
+        return $result;
+    }
+
     public function statement(LedgerAccount $account, string $month): array
     {
         if (! $account->balance_is_known) {

@@ -6,6 +6,7 @@ use App\Models\Project;
 use App\Models\Scope;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class EventorApiTest extends TestCase
@@ -42,7 +43,7 @@ class EventorApiTest extends TestCase
             ->assertOk()->assertJsonPath('data.status', 'published')->assertJsonPath('data.location', 'Server room');
     }
 
-    public function test_project_eventor_supports_filters_privacy_comments_and_diagrams(): void
+    public function test_project_eventor_supports_filters_privacy_comments_and_ignores_legacy_drawings(): void
     {
         $owner = User::factory()->create();
         $requester = User::factory()->create();
@@ -66,12 +67,16 @@ class EventorApiTest extends TestCase
             ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.id', $event['id']);
         $this->withHeaders(self::HEADERS)->postJson("/api/scopes/{$scope->id}/events/{$event['id']}/comments", ['content' => 'Investigating'])
             ->assertCreated()->assertJsonPath('data.content', 'Investigating');
+        $legacyDiagram = json_encode(['elements' => [['id' => 'legacy']]]);
+        DB::table('events')->where('id', $event['id'])->update(['diagram' => $legacyDiagram]);
         $this->withHeaders(self::HEADERS)->patchJson("/api/scopes/{$scope->id}/events/{$event['id']}", [
             'starts_at' => '2026-09-03 09:30:00', 'diagram' => ['elements' => [], 'files' => [], 'svg' => '<svg/>'],
             'attachments' => [['url' => 'https://example.com/spec.pdf', 'label' => 'Specification']],
             'photos' => [['url' => 'https://example.com/photo.jpg', 'label' => 'Incidentpolis']],
-        ])->assertOk()->assertJsonPath('data.diagram.svg', '<svg/>')->assertJsonPath('data.attachments.0.label', 'Specification')
+        ])->assertOk()->assertJsonMissingPath('data.diagram')->assertJsonPath('data.attachments.0.label', 'Specification')
             ->assertJsonPath('data.photos.0.label', 'Incidentpolis');
+        $this->assertSame($legacyDiagram, DB::table('events')->where('id', $event['id'])->value('diagram'));
+        $this->getJson("/api/scopes/{$scope->id}/events/{$event['id']}")->assertOk()->assertJsonMissingPath('data.diagram');
         $this->withHeaders(self::HEADERS)->getJson("/api/scopes/{$scope->id}/events/{$event['id']}/comments")
             ->assertOk()->assertJsonCount(1, 'data');
 

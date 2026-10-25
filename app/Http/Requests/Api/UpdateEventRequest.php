@@ -25,7 +25,6 @@ class UpdateEventRequest extends WorkspaceRequest
             'is_all_day' => ['sometimes', 'boolean'], 'is_pinned' => ['sometimes', 'boolean'],
             'is_locked' => ['sometimes', 'boolean'], 'is_expert' => ['sometimes', 'boolean'], 'sort_order' => ['sometimes', 'integer'],
             'comments_enabled' => ['sometimes', 'nullable', 'boolean'], 'is_blurred' => ['sometimes', 'boolean'],
-            'diagram' => ['sometimes', 'nullable', 'array'],
             'attachments' => ['sometimes', 'nullable', 'array', 'max:100'], 'attachments.*.url' => ['required', 'url', 'max:2048'],
             'attachments.*.label' => ['nullable', 'string', 'max:255'], 'photos' => ['sometimes', 'nullable', 'array', 'max:100'],
             'photos.*.url' => ['required', 'url', 'max:2048'], 'photos.*.label' => ['nullable', 'string', 'max:255'],

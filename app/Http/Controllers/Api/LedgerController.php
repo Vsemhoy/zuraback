@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\LedgerPeriodRequest;
+use App\Http\Requests\Api\MoveLedgerTransactionRequest;
 use App\Http\Requests\Api\SaveLedgerAccountRequest;
 use App\Http\Requests\Api\SaveLedgerCategoryRequest;
 use App\Http\Requests\Api\SaveLedgerTransactionRequest;
@@ -19,7 +21,9 @@ use App\Services\EquipAccessService;
 use App\Services\LedgerAccessService;
 use App\Services\LedgerInterestService;
 use App\Services\LedgerMoney;
+use App\Services\LedgerReportService;
 use App\Services\LedgerService;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
@@ -47,6 +51,76 @@ class LedgerController extends Controller
             'categories' => $this->access->categories($actor, $scope)->orderBy('sort_order')->orderBy('id')->get(),
             'currencies' => LedgerMoney::CURRENCIES,
         ]]);
+    }
+
+    public function flow(LedgerPeriodRequest $request, Scope $scope): JsonResponse
+    {
+        $accounts = $this->periodAccounts($request, $scope, false);
+        [$from, $to] = $this->period($request);
+        $ids = $accounts->modelKeys();
+        $query = LedgerTransaction::where('scope_id', $scope->id)->whereBetween('occurred_on', [$from->toDateString(), $to->toDateString()])
+            ->where(fn (Builder $query) => $query->whereIn('account_id', $ids)->orWhereIn('target_account_id', $ids));
+        abort_if((clone $query)->count() > 5000, 422, 'В периоде больше 5000 операций. Выберите один счёт или меньший период.');
+        $permissions = $this->permissions($request, $scope);
+        $transactions = $query->select(['id', 'scope_id', 'account_id', 'target_account_id', 'category_id', 'exploitation_entry_id', 'cost_type', 'created_by', 'creator_name', 'kind', 'amount_minor', 'currency', 'occurred_on', 'status', 'title', 'is_pinned', 'revision', 'created_at', 'updated_at', 'deleted_at'])
+            ->with(self::RELATIONS)->orderBy('occurred_on')->orderBy('id')->get();
+
+        return response()->json(['data' => [
+            'accounts' => $accounts->map(fn (LedgerAccount $account): array => [
+                ...$account->only(['id', 'project_id', 'title', 'currency', 'color', 'is_archived', 'balance_is_known', 'exclude_from_reports']),
+                'project' => $account->project?->only(['id', 'title', 'key']),
+                'can_write' => isset($permissions['write'][$account->id]) && ! $account->is_archived && $account->balance_is_known,
+                'can_manage' => isset($permissions['manage'][$account->id]),
+            ])->values(),
+            'transactions' => $transactions->map(fn (LedgerTransaction $transaction): array => $this->presentTransaction($request, $scope, $transaction, $permissions, false))->values(),
+            'daily' => $this->interest->dailyBalances($accounts, $from, $to), 'as_of' => now()->toDateString(),
+        ]]);
+    }
+
+    public function report(LedgerPeriodRequest $request, Scope $scope, LedgerReportService $reports): JsonResponse
+    {
+        $accounts = $this->periodAccounts($request, $scope, true);
+        [$from, $to] = $this->period($request);
+
+        return response()->json(['data' => [
+            'accounts' => $accounts->map(fn (LedgerAccount $account): array => $account->only(['id', 'title', 'project_id', 'currency', 'color', 'is_archived', 'balance_is_known']))->values(),
+            'months' => $reports->monthly($accounts, $from, $to), 'as_of' => $to->min(CarbonImmutable::today())->toDateString(),
+        ]]);
+    }
+
+    private function periodAccounts(LedgerPeriodRequest $request, Scope $scope, bool $report): Collection
+    {
+        $data = $request->validated();
+        $query = $this->access->accounts($this->context->actor($request), $scope);
+        if (! empty($data['project_id'])) {
+            $query->where('project_id', $data['project_id']);
+        }
+        if (! empty($data['account_id'])) {
+            abort_unless((clone $query)->whereKey($data['account_id'])->exists(), 404);
+            $query->whereKey($data['account_id']);
+        }
+        if ($report) {
+            $query->where('exclude_from_reports', false);
+        }
+        if (! $request->boolean('archived')) {
+            $query->where('is_archived', false);
+        }
+
+        return $query->with('project:id,title,key,deleted_at')->orderBy('sort_order')->orderBy('id')->get();
+    }
+
+    private function period(LedgerPeriodRequest $request): array
+    {
+        $data = $request->validated();
+
+        return [CarbonImmutable::createFromFormat('!Y-m', $data['start']), CarbonImmutable::createFromFormat('!Y-m', $data['end'])->endOfMonth()];
+    }
+
+    public function moveTransaction(MoveLedgerTransactionRequest $request, Scope $scope, LedgerTransaction $transaction): JsonResponse
+    {
+        $transaction = $this->service->moveTransaction($request, $scope, $transaction, $request->validated())->load(self::RELATIONS);
+
+        return response()->json(['data' => $this->presentTransaction($request, $scope, $transaction, $this->permissions($request, $scope))]);
     }
 
     public function accounts(Request $request, Scope $scope): JsonResponse

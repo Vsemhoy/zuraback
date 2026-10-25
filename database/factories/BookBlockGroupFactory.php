@@ -22,7 +22,7 @@ class BookBlockGroupFactory extends Factory
         return [
             'page_id' => BookPage::factory(),
             'created_by' => User::factory(),
-            'type' => fake()->randomElement(['markdown', 'excalidraw', 'svg', 'table', 'code', 'callout', 'checklist', 'divider', 'embed']),
+            'type' => fake()->randomElement(['markdown', 'svg', 'table', 'code', 'callout', 'checklist', 'divider', 'embed']),
             'role' => 'content',
         ];
     }

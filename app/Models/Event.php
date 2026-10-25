@@ -8,9 +8,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-#[Fillable(['scope_id', 'created_by', 'requester_id', 'type_id', 'project_id', 'section_id', 'category_id', 'parent_id', 'root_id', 'title', 'content', 'format', 'language', 'code_language', 'status', 'importance', 'visibility', 'relation_type', 'location', 'starts_at', 'ends_at', 'occurred_at', 'is_all_day', 'is_pinned', 'is_locked', 'comments_enabled', 'is_blurred', 'is_expert', 'sort_order', 'meta', 'diagram', 'attachments', 'photos', 'recurrence_frequency', 'recurrence_until', 'recurrence_timezone', 'recurrence_user_id'])]
+#[Fillable(['scope_id', 'created_by', 'requester_id', 'type_id', 'project_id', 'section_id', 'category_id', 'parent_id', 'root_id', 'title', 'content', 'format', 'language', 'code_language', 'status', 'importance', 'visibility', 'relation_type', 'location', 'starts_at', 'ends_at', 'occurred_at', 'is_all_day', 'is_pinned', 'is_locked', 'comments_enabled', 'is_blurred', 'is_expert', 'sort_order', 'meta', 'attachments', 'photos', 'recurrence_frequency', 'recurrence_until', 'recurrence_timezone', 'recurrence_user_id'])]
 class Event extends DomainModel
 {
+    // Legacy inline drawings stay in storage but are no longer exposed.
+    protected $hidden = ['diagram'];
+
     use HasEntityLinks, SoftDeletes;
 
     protected $attributes = ['recurrence_timezone' => 'UTC'];

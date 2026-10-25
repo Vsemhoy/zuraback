@@ -75,6 +75,20 @@ class BookerApiTest extends TestCase
         $this->deleteJson("/api/scopes/{$scope->id}/book-spaces/{$space->id}")->assertNoContent();
     }
 
+    public function test_new_legacy_drawing_blocks_are_rejected_without_removing_existing_blocks(): void
+    {
+        $user = User::factory()->create();
+        $scope = Scope::factory()->create(['owner_id' => $user->id]);
+        $book = $scope->books()->create(['created_by' => $user->id, 'title' => 'Book']);
+        $page = $book->pages()->create(['created_by' => $user->id, 'title' => 'Page', 'editing_by' => $user->id, 'editing_started_at' => now()]);
+        $legacy = $page->groups()->create(['created_by' => $user->id, 'type' => 'excalidraw']);
+        $url = "/api/scopes/{$scope->id}/books/{$book->id}/pages/{$page->id}/blocks";
+        $this->actingAs($user)->withHeaders(self::HEADERS)->postJson($url, ['type' => 'excalidraw'])
+            ->assertUnprocessable()->assertJsonValidationErrors('type');
+        $this->postJson($url, ['type' => 'svg'])->assertCreated();
+        $this->assertDatabaseHas('book_block_groups', ['id' => $legacy->id, 'type' => 'excalidraw', 'deleted_at' => null]);
+    }
+
     private const HEADERS = ['Accept' => 'application/json', 'Content-Type' => 'application/json', 'X-App-Request' => 'Zuratax'];
 
     public function test_booker_tree_and_block_versions_work(): void
