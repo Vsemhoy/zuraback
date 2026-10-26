@@ -60,7 +60,7 @@ class LedgerController extends Controller
         $ids = $accounts->modelKeys();
         $query = LedgerTransaction::where('scope_id', $scope->id)->whereBetween('occurred_on', [$from->toDateString(), $to->toDateString()])
             ->where(fn (Builder $query) => $query->whereIn('account_id', $ids)->orWhereIn('target_account_id', $ids));
-        abort_if((clone $query)->count() > 5000, 422, 'В периоде больше 5000 операций. Выберите один счёт или меньший период.');
+        abort_if((clone $query)->count() > 5000, 422, 'В периоде больше 5000 операций. Выберите меньше счетов или меньший период.');
         $permissions = $this->permissions($request, $scope);
         $transactions = $query->select(['id', 'scope_id', 'account_id', 'target_account_id', 'category_id', 'exploitation_entry_id', 'cost_type', 'created_by', 'creator_name', 'kind', 'amount_minor', 'currency', 'occurred_on', 'status', 'title', 'is_pinned', 'revision', 'created_at', 'updated_at', 'deleted_at'])
             ->with(self::RELATIONS)->orderBy('occurred_on')->orderBy('id')->get();
@@ -98,6 +98,10 @@ class LedgerController extends Controller
         if (! empty($data['account_id'])) {
             abort_unless((clone $query)->whereKey($data['account_id'])->exists(), 404);
             $query->whereKey($data['account_id']);
+        }
+        if (! empty($data['account_ids'])) {
+            abort_unless((clone $query)->whereIn('id', $data['account_ids'])->count() === count($data['account_ids']), 404);
+            $query->whereIn('id', $data['account_ids']);
         }
         if ($report) {
             $query->where('exclude_from_reports', false);

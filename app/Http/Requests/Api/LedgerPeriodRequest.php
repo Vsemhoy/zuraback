@@ -17,7 +17,9 @@ class LedgerPeriodRequest extends WorkspaceRequest
         return [
             'start' => ['required', 'date_format:Y-m', 'after_or_equal:1900-01', 'before_or_equal:2100-12'],
             'end' => ['required', 'date_format:Y-m', 'after_or_equal:start', 'before_or_equal:'.($this->route()->getActionMethod() === 'flow' ? '2100-12' : now()->format('Y-m'))],
-            'project_id' => ['nullable', 'ulid'], 'account_id' => ['nullable', 'ulid'],
+            'project_id' => ['nullable', 'ulid'], 'account_id' => ['nullable', 'ulid', 'prohibits:account_ids'],
+            'account_ids' => ['sometimes', 'array', 'max:100'],
+            'account_ids.*' => ['required', 'ulid', 'distinct'],
             'archived' => ['sometimes', 'boolean'],
         ];
     }

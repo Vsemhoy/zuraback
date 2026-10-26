@@ -43,13 +43,79 @@ class LedgerInterestTest extends TestCase
         [, $project, , $url] = $this->workspace();
 
         $response = $this->postJson("$url/accounts", ['project_id' => $project->id, 'title' => 'Кредитный счёт', 'type' => 'credit', 'currency' => 'RUB',
-            'opening_balance' => '-100.00', 'interest_rate_bps' => 36500, 'interest_start_on' => '2026-01-01']);
+            'opening_balance' => '0.00', 'interest_rate_bps' => 36500, 'interest_start_on' => '2026-01-01']);
 
-        $id = $response->assertCreated()->assertJsonPath('data.balance_minor', '-10000')->assertJsonPath('data.balance_today_minor', '-10303')
-            ->assertJsonPath('data.principal_today_minor', '-10000')->assertJsonPath('data.interest_minor', '-303')->assertJsonPath('data.balance_as_of', '2026-01-03')->json('data.id');
+        $id = $response->assertCreated()->assertJsonPath('data.balance_minor', '0')->assertJsonPath('data.balance_today_minor', '0')
+            ->assertJsonPath('data.principal_today_minor', '0')->assertJsonPath('data.interest_minor', '0')->assertJsonPath('data.balance_as_of', '2026-01-03')->json('data.id');
         $this->assertDatabaseHas('ledger_accounts', ['id' => $id, 'interest_rate_bps' => 36500, 'interest_start_on' => '2026-01-01']);
         $this->assertDatabaseCount('ledger_transactions', 0);
         $this->assertDatabaseCount('activity_logs', 1);
+    }
+
+    public function test_credit_rejects_nonzero_opening_and_does_not_silently_discard_it(): void
+    {
+        [, $project, , $url] = $this->workspace();
+        foreach (['-100.00', '100.00'] as $opening) {
+            $this->postJson("$url/accounts", ['project_id' => $project->id, 'title' => 'Credit', 'type' => 'credit', 'currency' => 'RUB',
+                'opening_balance' => $opening, 'interest_rate_bps' => 36500, 'interest_start_on' => '2026-01-01'])
+                ->assertUnprocessable()->assertJsonValidationErrors('opening_balance')
+                ->assertJsonPath('errors.opening_balance.0', 'Кредитный счёт открывается с нулевым остатком. Долг оформляется проведённой операцией.');
+        }
+        $this->assertDatabaseCount('ledger_accounts', 0);
+        $this->assertDatabaseCount('activity_logs', 0);
+    }
+
+    public function test_credit_defaults_to_zero_when_opening_is_omitted(): void
+    {
+        [, $project, , $url] = $this->workspace();
+        $id = $this->postJson("$url/accounts", ['project_id' => $project->id, 'title' => 'Credit', 'type' => 'credit', 'currency' => 'RUB',
+            'interest_rate_bps' => 36500, 'interest_start_on' => '2026-01-01'])
+            ->assertCreated()->assertJsonPath('data.balance_today_minor', '0')->json('data.id');
+        $this->assertDatabaseHas('ledger_accounts', ['id' => $id, 'opening_minor' => 0]);
+    }
+
+    public function test_legacy_credit_opening_correction_is_versioned_audited_and_preserves_real_debt(): void
+    {
+        [, $project, , $url] = $this->workspace();
+        $account = $this->credit($project);
+        $transaction = LedgerTransaction::factory()->create(['account_id' => $account->id, 'kind' => 'expense', 'amount_minor' => '5000',
+            'occurred_on' => '2026-01-02', 'status' => 'posted']);
+        $this->patchJson("$url/accounts/{$account->id}", ['revision' => 2, 'opening_balance' => '0.00'])->assertConflict();
+        $this->patchJson("$url/accounts/{$account->id}", ['revision' => 1, 'opening_balance' => '-1.00'])->assertUnprocessable();
+
+        $this->patchJson("$url/accounts/{$account->id}", ['revision' => 1, 'opening_balance' => '0.00'])
+            ->assertOk()->assertJsonPath('data.opening_minor', '0')->assertJsonPath('data.revision', 2)
+            ->assertJsonPath('data.principal_today_minor', '-5000')->assertJsonPath('data.interest_minor', '-101')
+            ->assertJsonPath('data.balance_today_minor', '-5101');
+
+        $this->assertDatabaseHas('ledger_accounts', ['id' => $account->id, 'opening_minor' => 0, 'revision' => 2]);
+        $this->assertDatabaseHas('ledger_transactions', ['id' => $transaction->id, 'amount_minor' => 5000, 'revision' => 1]);
+        $this->assertDatabaseCount('ledger_transactions', 1);
+        $log = ActivityLog::where('subject_id', $account->id)->sole();
+        $this->assertSame('-10000', $log->before['opening_minor']);
+        $this->assertSame('0', $log->after['opening_minor']);
+    }
+
+    public function test_credit_opening_correction_requires_manage_permission(): void
+    {
+        [$scope, $project, , $url] = $this->workspace();
+        $account = $this->credit($project);
+        $user = User::factory()->create();
+        $scope->members()->create(['user_id' => $user->id, 'role' => 'member', 'project_access_mode' => 'all', 'permissions' => ['allow' => ['ledger.view', 'ledger.write']]]);
+
+        $this->actingAs($user)->patchJson("$url/accounts/{$account->id}", ['revision' => 1, 'opening_balance' => '0.00'])->assertForbidden();
+
+        $this->assertDatabaseHas('ledger_accounts', ['id' => $account->id, 'opening_minor' => -10000, 'revision' => 1]);
+        $this->assertDatabaseCount('activity_logs', 0);
+    }
+
+    public function test_nonzero_bank_opening_cannot_be_converted_to_credit(): void
+    {
+        [, $project, , $url] = $this->workspace();
+        $account = LedgerAccount::factory()->create(['project_id' => $project->id, 'opening_minor' => '10000']);
+        $this->patchJson("$url/accounts/{$account->id}", ['revision' => 1, 'type' => 'credit', 'interest_rate_bps' => 100, 'interest_start_on' => '2026-01-01'])
+            ->assertUnprocessable()->assertJsonValidationErrors('opening_balance');
+        $this->assertDatabaseHas('ledger_accounts', ['id' => $account->id, 'type' => 'bank', 'opening_minor' => 10000]);
     }
 
     public function test_statement_applies_payments_before_interest_and_ignores_plans_future_void_and_deleted(): void
@@ -261,13 +327,13 @@ class LedgerInterestTest extends TestCase
         $this->assertDatabaseCount('activity_logs', 0);
     }
 
-    public function test_account_creation_rolls_back_when_its_interest_projection_is_unsafe(): void
+    public function test_nonzero_opening_is_rejected_before_unsafe_historical_interest_is_calculated(): void
     {
         [, $project, , $url] = $this->workspace();
 
         $this->postJson("$url/accounts", ['project_id' => $project->id, 'title' => 'Unsafe', 'type' => 'credit', 'currency' => 'RUB',
             'opening_balance' => '-100.00', 'interest_rate_bps' => 100000, 'interest_start_on' => '1900-01-01'])
-            ->assertUnprocessable()->assertJsonValidationErrors('account_id');
+            ->assertUnprocessable()->assertJsonValidationErrors('opening_balance');
 
         $this->assertDatabaseCount('ledger_accounts', 0);
         $this->assertDatabaseCount('activity_logs', 0);

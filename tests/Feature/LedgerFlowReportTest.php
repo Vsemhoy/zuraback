@@ -153,9 +153,37 @@ class LedgerFlowReportTest extends TestCase
         $this->patchJson("$url/accounts/{$account->id}", ['revision' => 1, 'exclude_from_reports' => true])->assertForbidden();
         foreach (['flow', 'report'] as $view) {
             $this->getJson("$url/$view?start=2026-10&end=2026-10&account_id={$hidden->id}")->assertNotFound();
+            $this->getJson("$url/$view?start=2026-10&end=2026-10&account_ids[]={$account->id}&account_ids[]={$hidden->id}")->assertNotFound();
         }
         $foreign = LedgerAccount::factory()->create();
         $this->getJson("$url/report?start=2026-10&end=2026-10&account_id={$foreign->id}")->assertNotFound();
+    }
+
+    public function test_flow_filters_multiple_accounts_and_does_not_duplicate_transfers(): void
+    {
+        [, $project, $account, , $url] = $this->workspace();
+        $second = LedgerAccount::factory()->create(['project_id' => $project->id]);
+        $excluded = LedgerAccount::factory()->create(['project_id' => $project->id]);
+        $transfer = LedgerTransaction::factory()->create(['account_id' => $account->id, 'target_account_id' => $second->id, 'kind' => 'transfer', 'status' => 'posted']);
+        LedgerTransaction::factory()->create(['account_id' => $excluded->id, 'status' => 'posted']);
+
+        $data = $this->getJson("$url/flow?start=2026-10&end=2026-10&account_ids[]={$account->id}&account_ids[]={$second->id}")
+            ->assertOk()->assertJsonCount(2, 'data.accounts')->assertJsonCount(1, 'data.transactions')
+            ->assertJsonPath('data.transactions.0.id', $transfer->id)->json('data');
+
+        $this->assertEqualsCanonicalizing([$account->id, $second->id], array_column($data['accounts'], 'id'));
+        $this->assertArrayNotHasKey($excluded->id, $data['daily']);
+    }
+
+    public function test_account_selection_rejects_foreign_duplicate_and_invalid_ids(): void
+    {
+        [, , $account, , $url] = $this->workspace();
+        $foreign = LedgerAccount::factory()->create();
+        $path = "$url/flow?start=2026-10&end=2026-10&account_ids[]={$account->id}";
+        $this->getJson("$path&account_ids[]={$foreign->id}")->assertNotFound();
+        $this->getJson("$path&account_ids[]={$account->id}")->assertUnprocessable()->assertJsonValidationErrors('account_ids.1');
+        $this->getJson("$path&account_ids[]=invalid")->assertUnprocessable()->assertJsonValidationErrors('account_ids.1');
+        $this->getJson("$path&account_id={$account->id}")->assertUnprocessable()->assertJsonValidationErrors('account_id');
     }
 
     public function test_period_validation_rejects_invalid_reversed_and_unbounded_periods(): void

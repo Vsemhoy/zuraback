@@ -39,9 +39,19 @@ class LedgerService
             }
             $this->interestTerms($data, $account);
             $before = $account?->attributesToArray();
+            $credit = ($data['type'] ?? $account?->type) === 'credit';
+            if ($credit && (! $account || array_key_exists('type', $data) || array_key_exists('opening_balance', $data))) {
+                $opening = array_key_exists('opening_balance', $data)
+                    ? LedgerMoney::parse($data['opening_balance'], true, 'opening_balance')
+                    : (int) ($account?->opening_minor ?? 0);
+                if ($opening !== 0) {
+                    throw ValidationException::withMessages(['opening_balance' => 'Кредитный счёт открывается с нулевым остатком. Долг оформляется проведённой операцией.']);
+                }
+            }
             if (array_key_exists('opening_balance', $data)) {
                 $data['opening_minor'] = (string) LedgerMoney::parse($data['opening_balance'], true, 'opening_balance');
-                if ($account && $account->balance_is_known && $data['opening_minor'] !== $account->opening_minor && LedgerTransaction::withTrashed()->where(fn (Builder $q) => $q->where('account_id', $account->id)->orWhere('target_account_id', $account->id))->exists()) {
+                $correctCreditOpening = $credit && $account?->type === 'credit' && $data['opening_minor'] === '0';
+                if (! $correctCreditOpening && $account && $account->balance_is_known && $data['opening_minor'] !== $account->opening_minor && LedgerTransaction::withTrashed()->where(fn (Builder $q) => $q->where('account_id', $account->id)->orWhere('target_account_id', $account->id))->exists()) {
                     throw ValidationException::withMessages(['opening_balance' => 'После первой операции начальный остаток нельзя менять. Внесите отдельную корректирующую операцию.']);
                 }
             }
