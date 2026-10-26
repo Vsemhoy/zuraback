@@ -195,4 +195,118 @@ class LedgerFlowReportTest extends TestCase
         $this->getJson("$url/report?start=2023-01&end=2026-10")->assertUnprocessable();
         $this->getJson("$url/report?start=2026-10&end=2026-11")->assertUnprocessable();
     }
+    public function test_forecast_reaches_last_operation_and_keeps_actual_balance_unchanged(): void
+    {
+        [, $project, $account, , $url] = $this->workspace();
+        LedgerTransaction::factory()->create(['account_id' => $account->id, 'status' => 'posted', 'kind' => 'expense', 'occurred_on' => '2026-10-10', 'amount_minor' => '1000']);
+        LedgerTransaction::factory()->create(['account_id' => $account->id, 'status' => 'planned', 'kind' => 'expense', 'occurred_on' => '2026-10-20', 'amount_minor' => '300']);
+        LedgerTransaction::factory()->create(['account_id' => $account->id, 'status' => 'posted', 'kind' => 'income', 'occurred_on' => '2026-11-02', 'amount_minor' => '5000']);
+        LedgerTransaction::factory()->create(['account_id' => $account->id, 'status' => 'planned', 'kind' => 'expense', 'occurred_on' => '2026-12-15', 'amount_minor' => '2000']);
+        foreach ([['status' => 'void'], ['status' => 'posted', 'deleted_at' => now()]] as $extra) {
+            LedgerTransaction::factory()->create([...$extra, 'account_id' => $account->id, 'occurred_on' => '2027-01-01', 'amount_minor' => '999999']);
+        }
+        $archived = LedgerAccount::factory()->create(['project_id' => $project->id, 'is_archived' => true]);
+        LedgerTransaction::factory()->create(['account_id' => $archived->id, 'occurred_on' => '2030-01-01']);
+        LedgerTransaction::factory()->create(['occurred_on' => '2031-01-01']);
+        $options = collect($this->getJson("$url/options")->assertOk()->json('data.accounts'))->keyBy('id');
+        $this->assertSame('9000', $options[$account->id]['balance_today_minor']);
+        $this->assertSame('11700', $options[$account->id]['forecast_balance_minor']);
+        $this->assertSame('2026-12-15', $options[$account->id]['forecast_as_of']);
+        $this->assertNull($options[$archived->id]['forecast_balance_minor']);
+        $flow = $this->getJson("$url/flow?start=2026-12&end=2026-12&forecast=1")->assertOk()->assertJsonPath('data.forecast', true)->json('data');
+        $this->assertSame('13700', $flow['daily'][$account->id][0]['opening_minor']);
+        $this->assertSame('11700', $flow['daily'][$account->id][14]['closing_minor']);
+        $this->assertSame('11700', $flow['daily'][$account->id][30]['closing_minor']);
+        $this->getJson("$url/flow?start=2026-12&end=2026-12&forecast=0")->assertOk()->assertJsonCount(0, 'data.daily');
+        $this->getJson("$url/report?start=2026-12&end=2026-12&forecast=1")->assertOk()
+            ->assertJsonPath('data.months.0.closing_minor', '11700')->assertJsonPath('data.months.0.expense', '2000');
+        $this->getJson("$url/report?start=2026-12&end=2026-12&forecast=0")->assertUnprocessable();
+        $this->getJson("$url/report?start=2026-12&end=2026-12&forecast=wrong")->assertUnprocessable();
+        $this->getJson("$url/flow?start=2026-10&end=2027-02&forecast=1")->assertUnprocessable();
+        $this->assertSame('10000', $account->fresh()->opening_minor);
+    }
+
+    public function test_forecast_compounds_future_credit_interest_and_preserves_unknown_balances(): void
+    {
+        [, $project, $account, , $url] = $this->workspace();
+        $this->travelTo(now()->setDate(2026, 10, 1));
+        $account->update(['type' => 'credit', 'opening_minor' => '0', 'interest_rate_bps' => 36500, 'interest_start_on' => '2026-10-01']);
+        LedgerTransaction::factory()->create(['account_id' => $account->id, 'status' => 'posted', 'kind' => 'expense', 'amount_minor' => '10000', 'occurred_on' => '2026-10-01']);
+        LedgerTransaction::factory()->create(['account_id' => $account->id, 'status' => 'planned', 'kind' => 'income', 'amount_minor' => '201', 'occurred_on' => '2026-10-03']);
+        $unknown = LedgerAccount::factory()->create(['project_id' => $project->id, 'balance_is_known' => false]);
+        $options = collect($this->getJson("$url/options")->assertOk()->json('data.accounts'))->keyBy('id');
+        $this->assertSame('-10100', $options[$account->id]['balance_today_minor']);
+        $this->assertSame('-10100', $options[$account->id]['forecast_balance_minor']);
+        $this->assertSame('-301', $options[$account->id]['forecast_interest_minor']);
+        $this->assertSame('2026-10-03', $options[$account->id]['forecast_as_of']);
+        $this->assertNull($options[$unknown->id]['forecast_balance_minor']);
+        $flow = $this->getJson("$url/flow?start=2026-10&end=2026-10&forecast=1")->assertOk()->json('data');
+        $this->assertSame('-10201', $flow['daily'][$account->id][1]['closing_minor']);
+        $this->assertSame('-10100', $flow['daily'][$account->id][2]['closing_minor']);
+        $this->assertArrayNotHasKey($unknown->id, $flow['daily']);
+        $this->assertDatabaseCount('ledger_transactions', 2);
+    }
+
+    public function test_expense_reports_group_months_categories_and_allocation_projects_without_counting_transfers(): void
+    {
+        [$scope, $project, $account, , $url] = $this->workspace();
+        $allocation = Project::factory()->create(['scope_id' => $scope->id, 'title' => 'Infrastructure']);
+        $parent = LedgerCategory::factory()->create(['project_id' => $project->id, 'title' => 'IT']);
+        $category = LedgerCategory::factory()->create(['project_id' => $project->id, 'parent_id' => $parent->id, 'title' => 'Servers']);
+        foreach ([['2026-09-10', 'posted', '1000'], ['2026-10-15', 'posted', '2000'], ['2026-11-15', 'planned', '3000']] as [$date, $status, $amount]) {
+            LedgerTransaction::factory()->create(['account_id' => $account->id, 'category_id' => $category->id, 'allocation_project_id' => $allocation->id, 'occurred_on' => $date, 'status' => $status, 'amount_minor' => $amount]);
+        }
+        LedgerTransaction::factory()->create(['account_id' => $account->id, 'occurred_on' => '2026-10-10', 'status' => 'posted', 'amount_minor' => '400']);
+        foreach (['income', 'adjustment_in', 'adjustment_out', 'transfer'] as $kind) {
+            LedgerTransaction::factory()->create(['account_id' => $account->id, 'status' => 'posted', 'kind' => $kind, 'amount_minor' => '99999']);
+        }
+        LedgerTransaction::factory()->create(['account_id' => $account->id, 'status' => 'void', 'amount_minor' => '99999']);
+        LedgerTransaction::factory()->create(['account_id' => $account->id, 'status' => 'posted', 'deleted_at' => now(), 'amount_minor' => '99999']);
+        foreach (['is_archived', 'exclude_from_reports'] as $flag) {
+            $excluded = LedgerAccount::factory()->create(['project_id' => $project->id, $flag => true]);
+            LedgerTransaction::factory()->create(['account_id' => $excluded->id, 'status' => 'posted', 'amount_minor' => '99999']);
+        }
+        $usd = LedgerAccount::factory()->create(['project_id' => $project->id, 'currency' => 'USD']);
+        LedgerTransaction::factory()->create(['account_id' => $usd->id, 'status' => 'posted', 'amount_minor' => '50']);
+        $data = $this->getJson("$url/report?start=2026-09&end=2026-11&forecast=1&group_by=categories")->assertOk()->json('data');
+        $this->assertSame('6400', $data['totals']['RUB']);
+        $this->assertSame('50', $data['totals']['USD']);
+        $row = collect($data['categories'])->firstWhere('id', $category->id);
+        $this->assertSame('IT / Servers', $row['title']);
+        $this->assertSame(['2026-09' => '1000', '2026-10' => '2000', '2026-11' => '3000'], $row['months']);
+        $this->assertSame('6000', collect($data['projects'])->firstWhere('id', $allocation->id)['total_minor']);
+        $this->getJson("$url/report?start=2026-10&end=2026-10&group_by=categories&allocation_project_id={$allocation->id}")
+            ->assertOk()->assertJsonPath('data.totals.RUB', '2000')->assertJsonCount(1, 'data.categories');
+        $this->getJson("$url/report?start=2026-10&end=2026-10&group_by=projects&allocation_project_id={$allocation->id}&all_time=1&forecast=1")
+            ->assertOk()->assertJsonPath('data.projects.0.total_minor', '6000')->assertJsonPath('data.as_of', '2026-11-15');
+        $this->getJson("$url/report?start=2026-10&end=2026-10&group_by=projects&allocation_project_id={$allocation->id}&all_time=1&forecast=0")
+            ->assertOk()->assertJsonPath('data.projects.0.total_minor', '3000');
+    }
+
+    public function test_forecasts_and_expense_groups_do_not_disclose_hidden_projects_or_foreign_accounts(): void
+    {
+        [$scope, $project, $account, , $url] = $this->workspace();
+        $hiddenProject = Project::factory()->create(['scope_id' => $scope->id, 'title' => 'Secret project']);
+        $hiddenAccount = LedgerAccount::factory()->create(['project_id' => $hiddenProject->id]);
+        LedgerTransaction::factory()->create(['account_id' => $hiddenAccount->id, 'occurred_on' => '2030-01-01', 'amount_minor' => '99999']);
+        LedgerTransaction::factory()->create(['account_id' => $account->id, 'allocation_project_id' => $hiddenProject->id, 'occurred_on' => '2026-11-01', 'amount_minor' => '500']);
+        LedgerTransaction::factory()->create(['account_id' => $hiddenAccount->id, 'target_account_id' => $account->id, 'kind' => 'transfer', 'status' => 'planned', 'occurred_on' => '2026-11-02', 'amount_minor' => '100']);
+        $user = User::factory()->create();
+        $scope->members()->create(['user_id' => $user->id, 'role' => 'member', 'project_access_mode' => 'restricted', 'permissions' => ['allow' => ['ledger.view']]]);
+        $project->members()->create(['user_id' => $user->id, 'is_active' => true]);
+        $this->actingAs($user);
+        $this->getJson("$url/options")->assertOk()->assertJsonCount(1, 'data.accounts')
+            ->assertJsonPath('data.accounts.0.forecast_as_of', '2026-11-02')->assertJsonPath('data.accounts.0.forecast_balance_minor', '9600');
+        $flow = $this->getJson("$url/flow?start=2026-11&end=2026-11&forecast=1")->assertOk()->json('data');
+        $this->assertSame('9600', $flow['daily'][$account->id][1]['closing_minor']);
+        $transfer = collect($flow['transactions'])->firstWhere('kind', 'transfer');
+        $this->assertNull($transfer['account_id']);
+        $response = $this->getJson("$url/report?start=2026-11&end=2026-11&group_by=projects&forecast=1")->assertOk()
+            ->assertJsonPath('data.projects.0.id', 'unavailable')->assertJsonPath('data.totals.RUB', '500');
+        $this->assertStringNotContainsString($hiddenProject->id, $response->getContent());
+        $this->assertStringNotContainsString('Secret project', $response->getContent());
+        $this->getJson("$url/report?start=2026-11&end=2026-11&group_by=projects&forecast=1&allocation_project_id={$hiddenProject->id}")->assertNotFound();
+        $this->getJson("$url/report?start=2026-11&end=2026-11&group_by=projects&forecast=1&account_id={$hiddenAccount->id}")->assertNotFound();
+    }
+
 }

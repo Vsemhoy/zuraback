@@ -39,15 +39,42 @@ class LedgerInterestService
         return $accounts;
     }
 
-    /** Daily balances for already authorized accounts, using the same calculation as statements. */
-    public function dailyBalances(Collection $accounts, CarbonImmutable $from, CarbonImmutable $to): array
+    /** Forecast authorized active accounts at a common horizon, without changing today's balances. */
+    public function forecast(Collection $accounts): Collection
     {
-        $asOf = $to->min(CarbonImmutable::today());
+        $active = $accounts->filter(fn (LedgerAccount $account): bool => ! $account->is_archived && $account->balance_is_known);
+        $ids = $active->modelKeys();
+        $last = $active->isEmpty() ? null : LedgerTransaction::whereIn('scope_id', $active->pluck('scope_id')->unique())
+            ->whereIn('status', ['posted', 'planned'])
+            ->where(fn ($query) => $query->whereIn('account_id', $ids)->orWhere(fn ($incoming) => $incoming->where('kind', 'transfer')->whereIn('target_account_id', $ids)))
+            ->max('occurred_on');
+        $asOf = $last ? CarbonImmutable::parse($last)->max(CarbonImmutable::today()) : CarbonImmutable::today();
+        $changes = $this->movements($active, $asOf, true);
+        foreach ($accounts as $account) {
+            $account->forceFill(['forecast_balance_minor' => null, 'forecast_interest_minor' => null, 'forecast_as_of' => $asOf->toDateString(), 'forecast_error' => null]);
+            if (! $account->balance_is_known || $account->is_archived) {
+                continue;
+            }
+            try {
+                $summary = $this->calculate($account, $changes[$account->id] ?? [], $asOf)['summary'];
+                $account->forceFill(['forecast_balance_minor' => $summary['balance_today_minor'], 'forecast_interest_minor' => $summary['interest_minor']]);
+            } catch (ValidationException $exception) {
+                $account->setAttribute('forecast_error', 'Прогноз превышает безопасный диапазон расчёта.');
+            }
+        }
+
+        return $accounts;
+    }
+
+    /** Daily balances for already authorized accounts, using the same calculation as statements. */
+    public function dailyBalances(Collection $accounts, CarbonImmutable $from, CarbonImmutable $to, bool $forecast = false): array
+    {
+        $asOf = $forecast ? $to : $to->min(CarbonImmutable::today());
         if ($from->gt($asOf)) {
             return [];
         }
         $known = $accounts->filter(fn (LedgerAccount $account): bool => $account->balance_is_known);
-        $changes = $this->movements($known, $asOf);
+        $changes = $this->movements($known, $asOf, $forecast);
         $result = [];
         foreach ($known as $account) {
             $result[$account->id] = $this->calculate($account, $changes[$account->id] ?? [], $asOf, $from)['days'];
@@ -99,13 +126,13 @@ class LedgerInterestService
     }
 
     /** @return array<string, array<string, int>> */
-    private function movements(Collection $accounts, CarbonImmutable $asOf): array
+    private function movements(Collection $accounts, CarbonImmutable $asOf, bool $forecast = false): array
     {
         if ($accounts->isEmpty()) {
             return [];
         }
         $result = [];
-        $query = LedgerTransaction::whereIn('scope_id', $accounts->pluck('scope_id')->unique())->where('status', 'posted')->where('occurred_on', '<=', $asOf->toDateString());
+        $query = LedgerTransaction::whereIn('scope_id', $accounts->pluck('scope_id')->unique())->whereIn('status', $forecast ? ['posted', 'planned'] : ['posted'])->where('occurred_on', '<=', $asOf->toDateString());
         $out = (clone $query)->whereIn('account_id', $accounts->modelKeys())
             ->selectRaw('account_id, occurred_on, kind, SUM(amount_minor) AS total_minor')->groupBy('account_id', 'occurred_on', 'kind');
         $in = (clone $query)->where('kind', 'transfer')->whereIn('target_account_id', $accounts->modelKeys())

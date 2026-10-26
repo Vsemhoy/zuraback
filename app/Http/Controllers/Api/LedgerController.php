@@ -47,7 +47,7 @@ class LedgerController extends Controller
 
         return response()->json(['data' => [
             'projects' => $projects->map(fn ($project): array => [...$project->toArray(), 'can_write' => in_array($project->id, $writeProjects, true), 'can_manage' => in_array($project->id, $manageProjects, true)])->values(),
-            'accounts' => $this->interest->enrich($accounts)->map(fn (LedgerAccount $account): array => $this->presentAccount($account, $permissions))->values(),
+            'accounts' => $this->interest->forecast($this->interest->enrich($accounts))->map(fn (LedgerAccount $account): array => $this->presentAccount($account, $permissions))->values(),
             'categories' => $this->access->categories($actor, $scope)->orderBy('sort_order')->orderBy('id')->get(),
             'currencies' => LedgerMoney::CURRENCIES,
         ]]);
@@ -73,7 +73,9 @@ class LedgerController extends Controller
                 'can_manage' => isset($permissions['manage'][$account->id]),
             ])->values(),
             'transactions' => $transactions->map(fn (LedgerTransaction $transaction): array => $this->presentTransaction($request, $scope, $transaction, $permissions, false))->values(),
-            'daily' => $this->interest->dailyBalances($accounts, $from, $to), 'as_of' => now()->toDateString(),
+            'daily' => $this->interest->dailyBalances($accounts, $from, $to, $request->boolean('forecast')), 'as_of' => now()->toDateString(),
+            'forecast' => $request->boolean('forecast'),
+            'calculated_through' => ($request->boolean('forecast') ? $to : $to->min(CarbonImmutable::today()))->toDateString(),
         ]]);
     }
 
@@ -81,10 +83,21 @@ class LedgerController extends Controller
     {
         $accounts = $this->periodAccounts($request, $scope, true);
         [$from, $to] = $this->period($request);
+        if (in_array($request->input('group_by'), ['categories', 'projects'], true)) {
+            $actor = $this->context->actor($request);
+            $projects = $this->access->projects($actor, $scope)->get(['id', 'title', 'key']);
+            $categories = $this->access->categories($actor, $scope)->get(['id', 'title', 'parent_id']);
+            $allocation = $request->input('allocation_project_id');
+            abort_if($allocation && ! $projects->contains('id', $allocation), 404);
+
+            return response()->json(['data' => $reports->expenses($accounts, $categories, $projects, $from, $to, $request->boolean('forecast'), $allocation, $request->boolean('all_time'))]);
+        }
 
         return response()->json(['data' => [
             'accounts' => $accounts->map(fn (LedgerAccount $account): array => $account->only(['id', 'title', 'project_id', 'currency', 'color', 'is_archived', 'balance_is_known']))->values(),
-            'months' => $reports->monthly($accounts, $from, $to), 'as_of' => $to->min(CarbonImmutable::today())->toDateString(),
+            'months' => $reports->monthly($accounts, $from, $to, $request->boolean('forecast')),
+            'forecast' => $request->boolean('forecast'),
+            'as_of' => ($request->boolean('forecast') ? $to : $to->min(CarbonImmutable::today()))->toDateString(),
         ]]);
     }
 
