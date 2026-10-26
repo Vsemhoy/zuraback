@@ -44,7 +44,7 @@ class ContentNavigationService
             return $this->diagrams->can($actor, $scope, $record, $write ? 'task.update' : 'task.view');
         }
         if ($record instanceof FilerFile) {
-            return $this->files->file($actor, $scope, $record, $write);
+            return $record->container !== 'ledger_photos' && $this->files->file($actor, $scope, $record, $write);
         }
         if ($record instanceof Task) {
             return $this->files->subject($actor, $scope, $record, $write);
@@ -122,6 +122,9 @@ class ContentNavigationService
         if ($type === 'file') {
             $query->with('attachments.subject');
         }
+        if ($type === 'file') {
+            $query->where('container', 'files');
+        }
         if ($term !== '') {
             $query->where(function (Builder $q) use ($type, $term): void {
                 $q->where($type === 'file' ? 'name' : ($type === 'lore' ? 'code' : 'title'), 'like', '%'.$term.'%');
@@ -171,7 +174,7 @@ class ContentNavigationService
     {
         return match ($type) {
             'diagram' => ['id', 'scope_id', 'created_by', 'title', 'project_id', 'visibility'],
-            'file' => ['id', 'scope_id', 'created_by', 'name', 'visibility'],
+            'file' => ['id', 'scope_id', 'created_by', 'name', 'visibility', 'container'],
             'lore' => ['id', 'scope_id', 'created_by', 'code', 'project_id', 'visibility'],
             'task' => ['id', 'scope_id', 'created_by', 'title', 'task_key', 'project_id', 'department_id', 'assignee_id', 'status'],
             'lightbook' => ['id', 'scope_id', 'created_by', 'title', 'project_id', 'visibility', 'kind'],

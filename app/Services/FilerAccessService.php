@@ -6,6 +6,7 @@ use App\Models\Book;
 use App\Models\Darklog;
 use App\Models\Event;
 use App\Models\FilerFile;
+use App\Models\LedgerTransaction;
 use App\Models\Project;
 use App\Models\Scope;
 use App\Models\Task;
@@ -15,9 +16,9 @@ use Illuminate\Database\Eloquent\Model;
 
 class FilerAccessService
 {
-    public const SUBJECTS = ['thing' => Thing::class, 'task' => Task::class, 'event' => Event::class, 'book' => Book::class, 'project' => Project::class, 'user' => User::class, 'darklog' => Darklog::class];
+    public const SUBJECTS = ['thing' => Thing::class, 'task' => Task::class, 'event' => Event::class, 'book' => Book::class, 'project' => Project::class, 'user' => User::class, 'darklog' => Darklog::class, 'ledger_transaction' => LedgerTransaction::class];
 
-    public function __construct(private readonly ContractorAccessService $access, private readonly EquipAccessService $equip) {}
+    public function __construct(private readonly ContractorAccessService $access, private readonly EquipAccessService $equip, private readonly LedgerAccessService $ledger) {}
 
     public function subject(User $actor, Scope $scope, ?Model $subject, bool $write = false): bool
     {
@@ -30,6 +31,19 @@ class FilerAccessService
         }
         if ($subject->scope_id !== $scope->id) {
             return false;
+        }
+        if ($subject instanceof LedgerTransaction) {
+            $subject->loadMissing(['account', 'targetAccount']);
+            $ability = $write ? 'ledger.write' : 'ledger.view';
+
+            // Receipts may reveal both sides of a transfer, so require access to both accounts.
+            return ! $subject->trashed() && $subject->account
+                && $this->ledger->account($actor, $scope, $subject->account, $ability)
+                && (! $subject->target_account_id || ($subject->targetAccount && $this->ledger->account($actor, $scope, $subject->targetAccount, $ability)))
+                && (! $write || (! $subject->account->is_archived && $subject->account->balance_is_known
+                    && ! $subject->targetAccount?->is_archived && ($subject->targetAccount?->balance_is_known ?? true)
+                    && (! in_array($subject->kind, LedgerTransaction::ADJUSTMENTS, true)
+                        || $this->ledger->transaction($actor, $scope, $subject, 'ledger.manage'))));
         }
         if ($subject instanceof Thing) {
             return $this->equip->thing($actor, $scope, $subject, $write ? 'equip.update' : 'equip.view');
@@ -75,6 +89,9 @@ class FilerAccessService
             return false;
         }
         $file->loadMissing('attachments.subject');
+        if ($file->container !== 'files' && ($file->attachments->isEmpty() || $file->attachments->contains(fn ($link): bool => $link->subject === null))) {
+            return false;
+        }
         if ($file->attachments->isEmpty()) {
             return $this->access->allows($actor, $scope, $write ? 'task.update' : 'task.view');
         }

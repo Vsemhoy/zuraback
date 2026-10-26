@@ -32,7 +32,7 @@ use Illuminate\Validation\Rule;
 
 class LedgerController extends Controller
 {
-    private const RELATIONS = ['account.project', 'targetAccount.project', 'category', 'exploitationEntry.thing'];
+    private const RELATIONS = ['account.project', 'targetAccount.project', 'allocationProject', 'category', 'exploitationEntry.thing'];
 
     public function __construct(private readonly LedgerAccessService $access, private readonly ContractorContext $context, private readonly LedgerService $service, private readonly EquipAccessService $equip, private readonly LedgerInterestService $interest) {}
 
@@ -62,7 +62,7 @@ class LedgerController extends Controller
             ->where(fn (Builder $query) => $query->whereIn('account_id', $ids)->orWhereIn('target_account_id', $ids));
         abort_if((clone $query)->count() > 5000, 422, 'В периоде больше 5000 операций. Выберите меньше счетов или меньший период.');
         $permissions = $this->permissions($request, $scope);
-        $transactions = $query->select(['id', 'scope_id', 'account_id', 'target_account_id', 'category_id', 'exploitation_entry_id', 'cost_type', 'created_by', 'creator_name', 'kind', 'amount_minor', 'currency', 'occurred_on', 'status', 'title', 'is_pinned', 'revision', 'created_at', 'updated_at', 'deleted_at'])
+        $transactions = $query->select(['id', 'scope_id', 'account_id', 'target_account_id', 'category_id', 'allocation_project_id', 'exploitation_entry_id', 'cost_type', 'created_by', 'creator_name', 'kind', 'amount_minor', 'currency', 'occurred_on', 'status', 'title', 'is_pinned', 'revision', 'created_at', 'updated_at', 'deleted_at'])
             ->with(self::RELATIONS)->orderBy('occurred_on')->orderBy('id')->get();
 
         return response()->json(['data' => [
@@ -190,6 +190,7 @@ class LedgerController extends Controller
     public function transactions(Request $request, Scope $scope): JsonResponse
     {
         $filters = $request->validate([
+            'allocation_project_id' => ['nullable', 'ulid'],
             'project_id' => ['nullable', 'ulid'], 'account_id' => ['nullable', 'ulid'], 'category_id' => ['nullable', 'ulid'],
             'kind' => ['nullable', Rule::in(LedgerTransaction::KINDS)], 'status' => ['nullable', Rule::in(['planned', 'posted', 'void'])],
             'q' => ['nullable', 'string', 'max:120'], 'from' => ['nullable', 'date_format:Y-m-d'],
@@ -208,6 +209,10 @@ class LedgerController extends Controller
         }
         $ids = (clone $accounts)->select('id');
         $query = LedgerTransaction::where('scope_id', $scope->id)->where(fn (Builder $q) => $q->whereIn('account_id', clone $ids)->orWhereIn('target_account_id', clone $ids));
+        if (! empty($filters['allocation_project_id'])) {
+            abort_unless($this->access->projects($actor, $scope)->whereKey($filters['allocation_project_id'])->exists(), 404);
+            $query->where('allocation_project_id', $filters['allocation_project_id']);
+        }
         if (! empty($filters['exploitation_entry_id'])) {
             $entry = $this->service->readableEntry($request, $scope, $filters['exploitation_entry_id']);
             $query->where('exploitation_entry_id', $entry->id);
@@ -219,7 +224,21 @@ class LedgerController extends Controller
         if ($request->boolean('trash')) {
             $query->onlyTrashed();
         }
-        foreach (['category_id', 'kind', 'status'] as $field) {
+        if (! empty($filters['category_id'])) {
+            $categories = $this->access->categories($actor, $scope)->get(['id', 'parent_id']);
+            abort_unless($categories->contains('id', $filters['category_id']), 404);
+            $selected = [$filters['category_id']];
+            do {
+                $count = count($selected);
+                foreach ($categories as $category) {
+                    if (in_array($category->parent_id, $selected, true) && ! in_array($category->id, $selected, true)) {
+                        $selected[] = $category->id;
+                    }
+                }
+            } while (count($selected) !== $count);
+            $query->whereIn('category_id', $selected);
+        }
+        foreach (['kind', 'status'] as $field) {
             if (! empty($filters[$field])) {
                 $query->where($field, $filters[$field]);
             }
@@ -253,7 +272,7 @@ class LedgerController extends Controller
                 ->map(fn ($row): array => ['currency' => $row->currency, 'cost_type' => $row->cost_type, 'status' => $row->status, 'amount_minor' => (string) $row->amount_minor])->all();
         }
         $permissions = $this->permissions($request, $scope);
-        $page = $query->select(['id', 'scope_id', 'account_id', 'target_account_id', 'category_id', 'exploitation_entry_id', 'cost_type', 'created_by', 'creator_name', 'kind', 'amount_minor', 'currency', 'occurred_on', 'status', 'title', 'is_pinned', 'revision', 'created_at', 'updated_at', 'deleted_at'])
+        $page = $query->select(['id', 'scope_id', 'account_id', 'target_account_id', 'category_id', 'allocation_project_id', 'exploitation_entry_id', 'cost_type', 'created_by', 'creator_name', 'kind', 'amount_minor', 'currency', 'occurred_on', 'status', 'title', 'is_pinned', 'revision', 'created_at', 'updated_at', 'deleted_at'])
             ->with(self::RELATIONS)->orderByDesc('is_pinned')->orderByDesc('occurred_on')->orderByDesc('id')->paginate(40);
 
         return response()->json(['data' => collect($page->items())->map(fn (LedgerTransaction $transaction): array => $this->presentTransaction($request, $scope, $transaction, $permissions, false)),
@@ -320,7 +339,7 @@ class LedgerController extends Controller
     private function permissions(Request $request, Scope $scope): array
     {
         $actor = $this->context->actor($request);
-        $result = [];
+        $result = ['projects' => array_fill_keys($this->access->projects($actor, $scope)->pluck('id')->all(), true)];
         foreach (['view', 'write', 'manage'] as $ability) {
             $result[$ability] = array_fill_keys($this->access->accounts($actor, $scope, 'ledger.'.$ability)->pluck('id')->all(), true);
         }
@@ -354,6 +373,8 @@ class LedgerController extends Controller
         $targetVisible = $transaction->target_account_id && isset($permissions['view'][$transaction->target_account_id]);
         $both = fn (string $ability): bool => isset($permissions[$ability][$transaction->account_id]) && (! $transaction->target_account_id || isset($permissions[$ability][$transaction->target_account_id]));
         $side = fn (LedgerAccount $account): array => [...$account->only(['id', 'title', 'project_id', 'currency', 'is_archived']), 'project' => $account->project?->only(['id', 'key', 'title'])];
+        $allocation = $transaction->allocationProject;
+        $allocationVisible = $allocation && isset($permissions['projects'][$allocation->id]);
         $entry = $transaction->exploitationEntry;
         $entryVisible = $entry && $scope->moduleEnabled('exploiter') && $entry->thing && $this->equip->thing($this->context->actor($request), $scope, $entry->thing);
 
@@ -364,6 +385,10 @@ class LedgerController extends Controller
             'target_account_id' => $targetVisible ? $transaction->target_account_id : null,
             'account' => $sourceVisible ? $side($transaction->account) : null, 'target_account' => $targetVisible ? $side($transaction->targetAccount) : null,
             'category_id' => $sourceVisible ? $transaction->category_id : null, 'category' => $sourceVisible ? $transaction->category : null,
+            'allocation_project_id' => $allocationVisible ? $allocation->id : null,
+            'allocation_project' => $allocationVisible ? $allocation->only(['id', 'key', 'title', 'deleted_at']) : null,
+            'has_allocation_project' => $transaction->allocation_project_id !== null,
+            'can_view_photos' => ! $transaction->trashed() && $both('view'),
             'has_exploitation' => $transaction->exploitation_entry_id !== null,
             'cost_type' => $transaction->exploitation_entry_id ? ($transaction->cost_type ?? 'combined') : null,
             'exploitation' => $entryVisible ? $entry->only(['id', 'thing_id', 'title', 'revision']) : null,

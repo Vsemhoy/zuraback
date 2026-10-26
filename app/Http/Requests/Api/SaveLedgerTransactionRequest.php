@@ -24,6 +24,7 @@ class SaveLedgerTransactionRequest extends WorkspaceRequest
             'amount' => [$this->isMethod('POST') ? 'required' : 'sometimes', 'regex:/^[0-9]{1,10}(?:\\.[0-9]{1,2})?$/D'],
             'occurred_on' => [$this->isMethod('POST') ? 'required' : 'sometimes', 'date_format:Y-m-d'],
             'status' => ['sometimes', Rule::in(['planned', 'posted', 'void'])],
+            'allocation_project_id' => ['nullable', 'ulid'],
             'category_id' => ['nullable', 'ulid'], 'note_md' => ['nullable', 'string', 'max:1000000'],
             'is_pinned' => ['sometimes', 'boolean'],
             'cost_type' => ['sometimes', Rule::in(LedgerTransaction::COST_TYPES)],

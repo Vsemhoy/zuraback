@@ -5,7 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['scope_id', 'project_id', 'title', 'kind', 'color', 'sort_order', 'is_archived', 'revision'])]
+#[Fillable(['scope_id', 'project_id', 'title', 'parent_id', 'keywords', 'kind', 'color', 'sort_order', 'is_archived', 'revision'])]
 class LedgerCategory extends DomainModel
 {
     protected $attributes = ['kind' => 'both', 'color' => '#7c6a46', 'sort_order' => 0, 'is_archived' => false, 'revision' => 1];
@@ -17,6 +17,6 @@ class LedgerCategory extends DomainModel
 
     protected function casts(): array
     {
-        return ['sort_order' => 'integer', 'is_archived' => 'boolean', 'revision' => 'integer'];
+        return ['keywords' => 'array', 'sort_order' => 'integer', 'is_archived' => 'boolean', 'revision' => 'integer'];
     }
 }

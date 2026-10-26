@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-#[Fillable(['scope_id', 'account_id', 'target_account_id', 'category_id', 'exploitation_entry_id', 'cost_type', 'created_by', 'updated_by', 'creator_name', 'kind', 'amount_minor', 'currency', 'occurred_on', 'status', 'title', 'note_md', 'is_pinned', 'idempotency_key', 'request_hash', 'revision'])]
+#[Fillable(['scope_id', 'account_id', 'target_account_id', 'category_id', 'allocation_project_id', 'exploitation_entry_id', 'cost_type', 'created_by', 'updated_by', 'creator_name', 'kind', 'amount_minor', 'currency', 'occurred_on', 'status', 'title', 'note_md', 'is_pinned', 'idempotency_key', 'request_hash', 'revision'])]
 class LedgerTransaction extends DomainModel
 {
     use SoftDeletes;
@@ -17,7 +17,7 @@ class LedgerTransaction extends DomainModel
 
     public const ADJUSTMENTS = ['adjustment_in', 'adjustment_out'];
 
-    protected $attributes = ['status' => 'planned', 'is_pinned' => false, 'revision' => 1];
+    protected $attributes = ['status' => 'posted', 'is_pinned' => false, 'revision' => 1];
 
     public function account(): BelongsTo
     {
@@ -27,6 +27,11 @@ class LedgerTransaction extends DomainModel
     public function targetAccount(): BelongsTo
     {
         return $this->belongsTo(LedgerAccount::class, 'target_account_id');
+    }
+
+    public function allocationProject(): BelongsTo
+    {
+        return $this->belongsTo(Project::class, 'allocation_project_id')->withTrashed();
     }
 
     public function category(): BelongsTo

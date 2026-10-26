@@ -96,6 +96,7 @@ class LegacyLedgerImportService
                 $ops[] = $op;
             }
             $rank = 0;
+            $categoryOps = [];
             foreach ($rows['categories'] as $id => $row) {
                 $names = [$row['name']];
                 $parent = $row['parent_id'] ?? null;
@@ -109,13 +110,22 @@ class LegacyLedgerImportService
                     array_unshift($names, $rows['categories'][$parent]['name']);
                     $parent = $rows['categories'][$parent]['parent_id'] ?? null;
                 }
-                $title = implode(' / ', $names);
+                if (count($names) > 5) {
+                    throw new LogicException('Legacy category hierarchy exceeds five levels.');
+                }
+                $title = $row['name'];
                 if (mb_strlen($title) > 120) {
                     throw new LogicException('A category path exceeds the native title limit.');
                 }
                 $op = $this->op($scope, 'ledger_category', $id, LedgerCategory::class, ['project_id' => $project['target_id'], 'title' => $title,
                     'kind' => 'both', 'sort_order' => $rank++, 'is_archived' => (bool) $row['is_archived'], ...Arr::only($row, ['created_at', 'updated_at'])], $row);
                 $maps['categories'][$id] = $op['target_id'];
+                $categoryOps[] = [...$op, 'depth' => count($names) - 1];
+            }
+            usort($categoryOps, fn (array $a, array $b): int => $a['depth'] <=> $b['depth']);
+            foreach ($categoryOps as $op) {
+                $parent = Str::lower($op['archive']['parent_id'] ?? '');
+                $op['payload']['parent_id'] = $parent ? $maps['categories'][$parent] : null;
                 $ops[] = $op;
             }
             $pairs = [];

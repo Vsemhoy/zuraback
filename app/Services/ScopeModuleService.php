@@ -83,6 +83,7 @@ class ScopeModuleService
             'lore', 'lore_entry', 'lore_revision' => 'lore',
             'book', 'book_page', 'book_block', 'book_block_group' => 'booker',
             'diagram', 'lightbook' => 'content', 'thing' => 'equip',
+            'ledger_transaction', 'ledger_account', 'ledger_category' => 'ledger',
             default => null,
         };
     }
@@ -105,6 +106,7 @@ class ScopeModuleService
                 'Kpi', 'KpiProfile' => 'kpi', 'Event', 'EventSection' => 'event', 'Contact' => 'contact', 'Fact' => 'fact',
                 'Darklog' => 'darklog', 'LoreEntry', 'LoreRevision' => 'lore',
                 'Book', 'BookPage', 'BookBlock', 'BookBlockGroup' => 'book',
+                'LedgerTransaction' => 'ledger_transaction', 'LedgerAccount' => 'ledger_account', 'LedgerCategory' => 'ledger_category',
                 'Diagram' => 'diagram', 'Thing' => 'thing', default => '',
             });
 

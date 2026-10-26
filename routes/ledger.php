@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\FilerController;
 use App\Http\Controllers\Api\LedgerController;
 use Illuminate\Support\Facades\Route;
 
@@ -22,3 +23,9 @@ Route::delete('/transactions/{transaction}', [LedgerController::class, 'destroyT
 Route::post('/transactions/{transaction}/restore', [LedgerController::class, 'restoreTransaction'])->whereUlid('transaction')->withTrashed()->middleware('scope.ability:ledger.manage');
 Route::get('/transactions/{transaction}/history', [LedgerController::class, 'history'])->whereUlid('transaction')->withTrashed();
 Route::post('/exploitation/{entryId}', [LedgerController::class, 'linkExploitation'])->whereUlid('entryId')->middleware('scope.ability:ledger.write');
+
+Route::get('/photos', [FilerController::class, 'index'])->defaults('photo_container', 'ledger_photos');
+Route::post('/photos', [FilerController::class, 'store'])->defaults('photo_container', 'ledger_photos')->middleware('scope.ability:ledger.write');
+Route::get('/photos/{file}/image', [FilerController::class, 'image'])->whereUlid('file')->defaults('photo_container', 'ledger_photos');
+Route::get('/photos/{file}/download', [FilerController::class, 'download'])->whereUlid('file')->defaults('photo_container', 'ledger_photos');
+Route::delete('/photos/{file}', [FilerController::class, 'destroy'])->whereUlid('file')->defaults('photo_container', 'ledger_photos')->middleware('scope.ability:ledger.write');

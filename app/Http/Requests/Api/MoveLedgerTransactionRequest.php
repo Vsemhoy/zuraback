@@ -14,6 +14,8 @@ class MoveLedgerTransactionRequest extends WorkspaceRequest
     public function rules(): array
     {
         return [
+            'copy' => ['sometimes', 'boolean'],
+            'idempotency_key' => ['required_if:copy,true', 'nullable', 'uuid'],
             'revision' => ['required', 'integer', 'min:1'],
             'account_id' => ['required', 'ulid'],
             'occurred_on' => ['required', 'date_format:Y-m-d'],

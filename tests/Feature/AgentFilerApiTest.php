@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Models\Event;
 use App\Models\FilerFile;
+use App\Models\LedgerAccount;
+use App\Models\LedgerTransaction;
 use App\Models\Project;
 use App\Models\Scope;
 use App\Models\User;
@@ -121,5 +123,26 @@ class AgentFilerApiTest extends TestCase
         $this->post($url, array_merge($this->upload(), ['category' => 'project', 'subject_type' => 'project', 'subject_id' => $project->id]))->assertNotFound();
         $other = Scope::factory()->create();
         $this->getJson("/api/agent/scopes/{$other->id}/files")->assertForbidden();
+    }
+
+    public function test_ledger_photo_routes_enforce_financial_token_abilities(): void
+    {
+        [$agent, $scope] = $this->agent(['ledger.view', 'ledger.write']);
+        $project = Project::factory()->create(['scope_id' => $scope->id, 'created_by' => $agent->id]);
+        $account = LedgerAccount::factory()->create(['project_id' => $project->id]);
+        $transaction = LedgerTransaction::factory()->create(['account_id' => $account->id]);
+        $base = "/api/agent/scopes/{$scope->id}";
+        $id = $this->post("$base/ledger/photos", ['file' => UploadedFile::fake()->image('receipt.png'), 'photo' => '1',
+            'category' => 'ledger_transaction', 'subject_type' => 'ledger_transaction', 'subject_id' => $transaction->id, 'visibility' => 'scope'])
+            ->assertCreated()->json('data.id');
+        $this->getJson("$base/ledger/photos/$id/image")->assertOk();
+        $this->app['auth']->forgetGuards();
+        $this->withToken($agent->createToken('Read only finance', ['ledger.view'])->plainTextToken);
+        $this->getJson("$base/ledger/photos/$id/image")->assertOk();
+        $this->deleteJson("$base/ledger/photos/$id")->assertForbidden();
+        $this->app['auth']->forgetGuards();
+        $this->withToken($agent->createToken('Tasks only', ['task.view', 'task.update'])->plainTextToken);
+        $this->getJson("$base/ledger/photos/$id/image")->assertForbidden();
+        $this->getJson("$base/files/$id/image")->assertNotFound();
     }
 }

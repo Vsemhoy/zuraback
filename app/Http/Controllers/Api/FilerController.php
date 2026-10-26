@@ -42,8 +42,9 @@ class FilerController extends Controller
             'page' => ['nullable', 'integer', 'min:1'],
             'photos' => ['sometimes', 'boolean'],
         ]);
-        $actor = $this->context->actor($request);
-        $query = FilerFile::query()->where('scope_id', $scope->id)->with(['creator', 'attachments.subject'])->latest('id');
+        $container = $request->route('photo_container') === 'ledger_photos' ? 'ledger_photos'
+            : ($request->boolean('photos') && ($filters['subject_type'] ?? null) === 'event' && ! empty($filters['subject_id']) ? 'event_photos' : 'files');
+        $query = FilerFile::query()->where('container', $container)->where('scope_id', $scope->id)->with(['creator', 'attachments.subject'])->latest('id');
         if (! empty($filters['category'])) {
             $query->where('category', $filters['category']);
         }
@@ -60,7 +61,7 @@ class FilerController extends Controller
         $visible = [];
         $skip = ($page - 1) * 30;
         foreach ($query->lazy(100) as $file) {
-            if (! $this->access->file($actor, $scope, $file)) {
+            if (! $this->fileAccess($request, $scope, $file)) {
                 continue;
             }
             if ($skip-- > 0) {
@@ -79,6 +80,7 @@ class FilerController extends Controller
     {
         $data = $request->validate(['type' => ['required', Rule::in(array_keys(FilerAccessService::SUBJECTS))], 'q' => ['nullable', 'string', 'max:120']]);
         $actor = $this->context->actor($request);
+        abort_if($data['type'] === 'ledger_transaction', 404);
         $class = FilerAccessService::SUBJECTS[$data['type']];
         $query = $class::query();
         if ($data['type'] === 'user') {
@@ -108,6 +110,9 @@ class FilerController extends Controller
         $data = $request->validated();
         $actor = $this->context->actor($request);
         $type = $data['subject_type'] ?? null;
+        $ledger = $request->route('photo_container') === 'ledger_photos';
+        abort_unless($ledger ? ($type === 'ledger_transaction' && $data['category'] === $type && $request->boolean('photo')) : ($type !== 'ledger_transaction' && $data['category'] !== 'ledger_transaction'), 422);
+        $container = $ledger ? 'ledger_photos' : ($type === 'event' && $request->boolean('photo') ? 'event_photos' : 'files');
         if (in_array($data['category'], array_keys(FilerAccessService::SUBJECTS), true)) {
             abort_unless($type === $data['category'] && ! empty($data['subject_id']), 422, 'Выберите объект для вложения.');
         }
@@ -128,19 +133,20 @@ class FilerController extends Controller
             abort_if($available === false || $available - $upload->getSize() < config('filer.reserve_bytes'), 507, 'На сервере недостаточно свободного места.');
         }
         $id = (string) Str::ulid();
-        $path = $scope->id.'/'.$id.'/original';
+        $directory = $scope->id.'/'.($container === 'files' ? '' : $container.'/').$id;
+        $path = $directory.'/original';
         $name = Str::limit(preg_replace('/[\\x00-\\x1F\\x7F\\/\\\\\\\\]/u', '_', $upload->getClientOriginalName()), 240, '');
         $photo = $request->boolean('photo');
         $bytes = $photo ? app(PhotoProcessor::class)->compress($upload, $type === 'user' ? 512 : 2000) : null;
         if ($photo) {
             $name = pathinfo($name, PATHINFO_FILENAME).'.webp';
         }
-        abort_unless(($photo ? $disk->put($path, $bytes) : $upload->storeAs($scope->id.'/'.$id, 'original', 'filer')) !== false, 507, 'Не удалось сохранить файл.');
+        abort_unless(($photo ? $disk->put($path, $bytes) : $upload->storeAs($directory, 'original', 'filer')) !== false, 507, 'Не удалось сохранить файл.');
         try {
-            $file = DB::transaction(function () use ($scope, $actor, $request, $data, $upload, $id, $path, $name, $type, $photo, $bytes): FilerFile {
+            $file = DB::transaction(function () use ($scope, $actor, $request, $data, $upload, $id, $path, $name, $type, $photo, $bytes, $container): FilerFile {
                 $file = new FilerFile([
                     'scope_id' => $scope->id, 'created_by' => $actor->id, 'uploaded_by' => $request->user()->id,
-                    'name' => $name, 'category' => $data['category'], 'visibility' => $data['visibility'],
+                    'name' => $name, 'category' => $data['category'], 'container' => $container, 'visibility' => $data['visibility'],
                     'disk' => 'filer', 'path' => $path, 'mime' => $photo ? 'image/webp' : ($upload->getMimeType() ?: 'application/octet-stream'),
                     'size' => $photo ? strlen($bytes) : $upload->getSize(), 'sha256' => $photo ? hash('sha256', $bytes) : hash_file('sha256', $upload->getRealPath()),
                 ]);
@@ -163,8 +169,10 @@ class FilerController extends Controller
     public function attach(Request $request, Scope $scope, FilerFile $file): JsonResponse
     {
         $actor = $this->context->actor($request);
-        abort_unless($this->access->file($actor, $scope, $file, true), 404);
+        abort_unless($this->fileAccess($request, $scope, $file, true), 404);
+        abort_unless($file->container === 'files', 422, 'Фотографии остаются в контейнере своего модуля.');
         $data = $request->validate(['subject_type' => ['required', Rule::in(array_keys(FilerAccessService::SUBJECTS))], 'subject_id' => ['required', 'ulid']]);
+        abort_if($data['subject_type'] === 'ledger_transaction', 422);
         $class = FilerAccessService::SUBJECTS[$data['subject_type']];
         abort_unless($this->access->subject($actor, $scope, $class::find($data['subject_id']), true), 404);
         $file->attachments()->firstOrCreate($data);
@@ -174,7 +182,7 @@ class FilerController extends Controller
 
     public function download(Request $request, Scope $scope, FilerFile $file): StreamedResponse
     {
-        abort_unless($this->access->file($this->context->actor($request), $scope, $file), 404);
+        abort_unless($this->fileAccess($request, $scope, $file), 404);
         $disk = Storage::disk($file->disk);
         abort_unless($disk->exists($file->path), 404, 'Файл отсутствует в хранилище.');
 
@@ -183,15 +191,14 @@ class FilerController extends Controller
 
     public function image(Request $request, Scope $scope, FilerFile $file): StreamedResponse
     {
-        $actor = $this->context->actor($request);
-        $avatar = $file->scope_id === $scope->id && $file->visibility === 'scope' && $file->attachments()->count() === 1
+        $avatar = $request->route('photo_container') !== 'ledger_photos' && $file->container === 'files' && $file->scope_id === $scope->id && $file->visibility === 'scope' && $file->attachments()->count() === 1
             && $file->attachments()->where('subject_type', 'user')->get()->contains(function ($link) use ($scope, $file): bool {
                 $user = User::find($link->subject_id);
 
                 return $user && ($user->profile['avatar']['file_id'] ?? null) === $file->id
                     && ($scope->owner_id === $user->id || $scope->members()->where('user_id', $user->id)->where('is_active', true)->exists());
             });
-        abort_unless($avatar || $this->access->file($actor, $scope, $file), 404);
+        abort_unless($avatar || $this->fileAccess($request, $scope, $file), 404);
         abort_unless(in_array($file->mime, ['image/jpeg', 'image/png', 'image/webp'], true), 422);
         $disk = Storage::disk($file->disk);
         abort_unless($disk->exists($file->path), 404);
@@ -208,7 +215,7 @@ class FilerController extends Controller
         $actor = $this->context->actor($request);
         $class = FilerAccessService::SUBJECTS[$data['subject_type']];
         $subject = $class::find($data['subject_id']);
-        abort_unless($this->access->file($actor, $scope, $file) && $this->access->subject($actor, $scope, $subject, true), 404);
+        abort_unless($this->fileAccess($request, $scope, $file) && $this->access->subject($actor, $scope, $subject, true), 404);
         if ($data['subject_type'] === 'user') {
             abort_unless($request->user()->id === $scope->owner_id || $request->user()->id === $subject?->id, 403, 'Менять аватар может только сам пользователь или владелец.');
         }
@@ -234,7 +241,7 @@ class FilerController extends Controller
 
     public function update(UpdateFilerFileRequest $request, Scope $scope, FilerFile $file): JsonResponse
     {
-        abort_unless($this->access->file($this->context->actor($request), $scope, $file, true), 404);
+        abort_unless($this->fileAccess($request, $scope, $file, true), 404);
         $file->update($request->validated());
 
         return response()->json(['data' => $this->representation($request, $scope, $file->load(['creator', 'attachments.subject']))]);
@@ -242,14 +249,14 @@ class FilerController extends Controller
 
     public function preview(Request $request, Scope $scope, FilerFile $file, FilerPreviewService $previews): JsonResponse
     {
-        abort_unless($this->access->file($this->context->actor($request), $scope, $file), 404);
+        abort_unless($this->fileAccess($request, $scope, $file), 404);
 
         return response()->json(['data' => ['status' => $previews->status($file)]]);
     }
 
     public function preparePreview(Request $request, Scope $scope, FilerFile $file, FilerPreviewService $previews): JsonResponse
     {
-        abort_unless($this->access->file($this->context->actor($request), $scope, $file), 404);
+        abort_unless($this->fileAccess($request, $scope, $file), 404);
         $status = $previews->request($file);
 
         return response()->json(['data' => ['status' => $status]], $status === 'pending' ? 202 : 200);
@@ -257,7 +264,7 @@ class FilerController extends Controller
 
     public function previewContent(Request $request, Scope $scope, FilerFile $file, FilerPreviewService $previews): StreamedResponse
     {
-        abort_unless($this->access->file($this->context->actor($request), $scope, $file), 404);
+        abort_unless($this->fileAccess($request, $scope, $file), 404);
         abort_unless($previews->status($file) === 'ready', 409, 'Превью ещё не готово.');
 
         return Storage::disk($file->disk)->download($previews->path($file), 'preview.pdf', [
@@ -268,7 +275,7 @@ class FilerController extends Controller
 
     public function destroy(Request $request, Scope $scope, FilerFile $file): Response
     {
-        abort_unless($this->access->file($this->context->actor($request), $scope, $file, true), 404);
+        abort_unless($this->fileAccess($request, $scope, $file, true), 404);
         abort_if($request->user()->id !== $scope->owner_id && User::query()
             ->where('profile->avatar->file_id', $file->id)->where('id', '!=', $request->user()->id)->exists(), 403, 'Удалить выбранный аватар может только сам пользователь или владелец.');
         DB::transaction(function () use ($file): void {
@@ -285,14 +292,23 @@ class FilerController extends Controller
         return response()->noContent();
     }
 
+    private function fileAccess(Request $request, Scope $scope, FilerFile $file, bool $write = false): bool
+    {
+        if (($request->route('photo_container') === 'ledger_photos') !== ($file->container === 'ledger_photos')) {
+            return false;
+        }
+
+        return $this->access->file($this->context->actor($request), $scope, $file, $write);
+    }
+
     private function representation(Request $request, Scope $scope, FilerFile $file): array
     {
         return [
             'id' => $file->id, 'name' => $file->name, 'category' => $file->category,
-            'description' => $file->description,
+            'description' => $file->description, 'container' => $file->container,
             'visibility' => $file->visibility, 'size' => $file->size, 'mime' => $file->mime,
             'created_at' => $file->created_at, 'creator' => $file->creator?->only(['id', 'name']),
-            'can_manage' => $this->access->file($this->context->actor($request), $scope, $file, true),
+            'can_manage' => $this->fileAccess($request, $scope, $file, true),
             'attachments' => $file->attachments->map(fn ($link): array => [
                 'type' => $link->subject_type, 'id' => $link->subject_id,
                 'title' => $link->subject?->title ?? $link->subject?->name ?? 'Удалённый объект',

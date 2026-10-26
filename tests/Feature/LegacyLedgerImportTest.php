@@ -73,7 +73,7 @@ class LegacyLedgerImportTest extends TestCase
         $this->assertDatabaseHas('projects', ['id' => $result['maps']['project'], 'scope_id' => $scope->id, 'created_by' => $owner->id,
             'key' => 'FIN', 'visibility' => 'private', 'include_in_reports' => 0]);
         $this->assertDatabaseHas('ledger_accounts', ['id' => $result['maps']['accounts'][$snapshot['accounts'][0]['id']], 'opening_minor' => 10000]);
-        $this->assertDatabaseHas('ledger_categories', ['title' => 'Дом / Ремонт']);
+        $this->assertDatabaseHas('ledger_categories', ['title' => 'Ремонт', 'parent_id' => $result['maps']['categories'][$snapshot['categories'][0]['id']]]);
         $this->assertDatabaseCount('ledger_transactions', 1);
         $this->assertDatabaseHas('ledger_transactions', ['id' => $result['maps']['transactions'][$snapshot['transactions'][0]['id']],
             'amount_minor' => 1000, 'occurred_on' => '2026-01-01', 'kind' => 'expense', 'status' => 'posted']);

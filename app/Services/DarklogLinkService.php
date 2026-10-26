@@ -68,7 +68,7 @@ class DarklogLinkService
             return $this->files->subject($actor, $scope, $target);
         }
         if ($target instanceof FilerFile) {
-            return $this->files->file($actor, $scope, $target);
+            return $target->container !== 'ledger_photos' && $this->files->file($actor, $scope, $target);
         }
         if ($target instanceof BookPage) {
             $target->loadMissing('book.project');

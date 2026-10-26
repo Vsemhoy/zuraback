@@ -90,6 +90,7 @@ class LedgerService
             unset($data['revision']);
             $category ??= new LedgerCategory(['scope_id' => $scope->id]);
             $category->fill($data);
+            $this->categoryHierarchy($scope, $category, $before['parent_id'] ?? null);
             if ($before && ! $category->isDirty()) {
                 return $category;
             }
@@ -159,6 +160,9 @@ class LedgerService
             if (array_key_exists('cost_type', $data) && ! ($transaction?->exploitation_entry_id || $entry)) {
                 throw ValidationException::withMessages(['cost_type' => 'Тип затрат задаётся только для расхода эксплуатации.']);
             }
+            if (! empty($data['allocation_project_id']) && $data['allocation_project_id'] !== $transaction?->allocation_project_id) {
+                abort_unless($this->access->projects($actor, $scope)->whereNull('deleted_at')->whereKey($data['allocation_project_id'])->exists(), 422, 'Выберите доступный проект операции в этом скоупе.');
+            }
             unset($data['amount'], $data['revision']);
             $transaction ??= new LedgerTransaction(['scope_id' => $scope->id, 'created_by' => $actor->id, 'creator_name' => $actor->name, 'currency' => $account->currency, 'request_hash' => $hash, 'exploitation_entry_id' => $entry?->id]);
             $oldCategory = $transaction->category_id;
@@ -205,6 +209,16 @@ class LedgerService
             $otherId = $data['side'] === 'target' ? $transaction->account_id : $transaction->target_account_id;
             if ($destination->id === $otherId) {
                 throw ValidationException::withMessages(['account_id' => 'Счета перевода должны различаться.']);
+            }
+            if ($data['copy'] ?? false) {
+                $payload = $transaction->only(['account_id', 'target_account_id', 'kind', 'status', 'title', 'note_md', 'allocation_project_id']);
+                $payload[$field] = $destination->id;
+                $payload['occurred_on'] = $data['occurred_on'];
+                $payload['amount'] = LedgerMoney::decimal($transaction->amount_minor);
+                $payload['idempotency_key'] = $data['idempotency_key'];
+                $payload['category_id'] = $transaction->category && ! $transaction->category->is_archived ? $transaction->category_id : null;
+
+                return $this->saveTransaction($request, $scope, $payload);
             }
             $before = $transaction->attributesToArray();
             $transaction->fill([$field => $destination->id, 'occurred_on' => $data['occurred_on']]);
@@ -351,12 +365,48 @@ class LedgerService
         return $entry;
     }
 
+    private function categoryHierarchy(Scope $scope, LedgerCategory $category, ?string $oldParent): void
+    {
+        $nodes = LedgerCategory::where('scope_id', $scope->id)->where('project_id', $category->project_id)->get()->keyBy('id');
+        $key = $category->id ?? 'new';
+        $nodes->put($key, $category);
+        foreach ($nodes as $id => $node) {
+            $seen = [$id => true];
+            $current = $node;
+            while ($current->parent_id) {
+                $parent = $nodes->get($current->parent_id);
+                if (! $parent || isset($seen[$current->parent_id]) || count($seen) >= 5) {
+                    throw ValidationException::withMessages(['parent_id' => 'Родитель должен быть категорией того же проекта. Циклы запрещены, максимум пять уровней.']);
+                }
+                if ($parent->kind !== 'both' && $current->kind !== $parent->kind) {
+                    throw ValidationException::withMessages(['kind' => 'Тип подкатегории должен соответствовать родительской категории.']);
+                }
+                if ($id === $key && $category->parent_id !== $oldParent && $parent->is_archived) {
+                    throw ValidationException::withMessages(['parent_id' => 'Нельзя добавлять категорию в архивную ветку.']);
+                }
+                $seen[$current->parent_id] = true;
+                $current = $parent;
+            }
+        }
+    }
+
     private function category(Scope $scope, LedgerTransaction $transaction, LedgerAccount $account, ?string $oldCategory): void
     {
         if (! $transaction->category_id) {
             return;
         }
         $category = LedgerCategory::where('scope_id', $scope->id)->where('project_id', $account->project_id)->find($transaction->category_id);
+        if ($category && $transaction->category_id !== $oldCategory) {
+            $ancestor = $category;
+            $seen = [];
+            while ($ancestor) {
+                if ($ancestor->is_archived || isset($seen[$ancestor->id])) {
+                    throw ValidationException::withMessages(['category_id' => 'Выберите категорию вне архивной ветки.']);
+                }
+                $seen[$ancestor->id] = true;
+                $ancestor = $ancestor->parent_id ? LedgerCategory::where('scope_id', $scope->id)->where('project_id', $account->project_id)->find($ancestor->parent_id) : null;
+            }
+        }
         if (! $category || $transaction->kind === 'transfer' || ! in_array($category->kind, ['both', $transaction->kind], true) || ($category->is_archived && $oldCategory !== $category->id)) {
             throw ValidationException::withMessages(['category_id' => 'Выберите действующую категорию этого проекта, подходящую типу операции.']);
         }

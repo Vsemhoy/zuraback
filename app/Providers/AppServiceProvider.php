@@ -12,6 +12,7 @@ use App\Models\Event;
 use App\Models\EventSection;
 use App\Models\Fact;
 use App\Models\Kpi;
+use App\Models\LedgerTransaction;
 use App\Models\Project;
 use App\Models\Scope;
 use App\Models\Task;
@@ -56,6 +57,7 @@ class AppServiceProvider extends ServiceProvider
             'book_block_group' => BookBlockGroup::class,
             'book_page' => BookPage::class,
             'event' => Event::class,
+            'ledger_transaction' => LedgerTransaction::class,
             'event_section' => EventSection::class,
             'contact' => Contact::class,
             'fact' => Fact::class,

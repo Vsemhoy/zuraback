@@ -34,7 +34,8 @@ class EnsureSpaRequestIsTrusted
             abort_unless(in_array(rtrim($origin, '/'), $allowedOrigins, true), Response::HTTP_FORBIDDEN, 'Origin is not allowed.');
         }
 
-        $isFileUpload = $request->routeIs('filer.store')
+        $isFileUpload = ($request->routeIs('filer.store')
+            || ($request->route('photo_container') === 'ledger_photos' && $request->route()->getActionMethod() === 'store'))
             && $request->isMethod('POST')
             && str_starts_with(strtolower((string) $request->header('Content-Type')), 'multipart/form-data;');
 

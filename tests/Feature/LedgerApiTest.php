@@ -309,4 +309,59 @@ class LedgerApiTest extends TestCase
 
         $this->withHeaders(['X-App-Request' => 'Zuratax'])->getJson("/api/scopes/{$scope->id}/ledger/accounts")->assertUnauthorized();
     }
+
+    public function test_optional_operation_project_filters_expenses_without_changing_account_access(): void
+    {
+        [$scope, , $account, $owner, $url] = $this->workspace();
+        $allocation = Project::factory()->create(['scope_id' => $scope->id, 'created_by' => $owner->id]);
+        $payload = $this->payload($account, ['allocation_project_id' => $allocation->id]);
+        unset($payload['status']);
+        $id = $this->postJson("$url/transactions", $payload)->assertCreated()->assertJsonPath('data.status', 'posted')
+            ->assertJsonPath('data.allocation_project_id', $allocation->id)->json('data.id');
+        $this->postJson("$url/transactions", $this->payload($account, ['amount' => '10']))->assertCreated();
+        $this->getJson("$url/transactions?allocation_project_id={$allocation->id}")->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('meta.totals.0.expense', '12345');
+        $this->patchJson("$url/transactions/$id", ['revision' => 1, 'title' => 'Новое название'])->assertOk()->assertJsonPath('data.allocation_project_id', $allocation->id);
+        $foreign = Project::factory()->create();
+        $this->patchJson("$url/transactions/$id", ['revision' => 2, 'allocation_project_id' => $foreign->id])->assertUnprocessable();
+        $viewer = User::factory()->create();
+        $scope->members()->create(['user_id' => $viewer->id, 'role' => 'member', 'project_access_mode' => 'restricted', 'permissions' => ['allow' => ['ledger.view']]]);
+        $allocation->members()->create(['user_id' => $viewer->id, 'is_active' => true]);
+        $this->actingAs($viewer)->getJson("$url/transactions?allocation_project_id={$allocation->id}")->assertOk()->assertJsonCount(0, 'data');
+        $this->getJson("$url/transactions/$id")->assertNotFound();
+        $this->actingAs($owner)->patchJson("$url/transactions/$id", ['revision' => 2, 'allocation_project_id' => null])->assertOk()->assertJsonPath('data.allocation_project_id', null);
+    }
+
+    public function test_shift_copy_is_idempotent_preserves_original_and_copies_operation_fields(): void
+    {
+        [$scope, $project, $account, $owner, $url] = $this->workspace();
+        $allocation = Project::factory()->create(['scope_id' => $scope->id, 'created_by' => $owner->id]);
+        $category = LedgerCategory::factory()->create(['project_id' => $project->id]);
+        $id = $this->postJson("$url/transactions", $this->payload($account, ['note_md' => 'Receipt note', 'allocation_project_id' => $allocation->id, 'category_id' => $category->id]))->assertCreated()->json('data.id');
+        $target = LedgerAccount::factory()->create(['project_id' => $project->id]);
+        $payload = ['copy' => true, 'revision' => 1, 'account_id' => $target->id, 'occurred_on' => '2026-10-25', 'side' => 'source', 'idempotency_key' => (string) Str::uuid()];
+        $copy = $this->postJson("$url/transactions/$id/move", $payload)->assertOk()->assertJsonPath('data.account_id', $target->id)
+            ->assertJsonPath('data.note_md', 'Receipt note')->assertJsonPath('data.allocation_project_id', $allocation->id)
+            ->assertJsonPath('data.category_id', $category->id)->assertJsonPath('data.status', 'posted')->json('data.id');
+        $this->assertNotSame($id, $copy);
+        $this->postJson("$url/transactions/$id/move", $payload)->assertOk()->assertJsonPath('data.id', $copy);
+        $this->assertDatabaseCount('ledger_transactions', 2);
+        $this->assertDatabaseHas('ledger_transactions', ['id' => $id, 'account_id' => $account->id, 'revision' => 1, 'occurred_on' => '2026-10-23']);
+        $this->postJson("$url/transactions/$id/move", [...$payload, 'revision' => 8])->assertConflict();
+        unset($payload['idempotency_key']);
+        $this->postJson("$url/transactions/$id/move", $payload)->assertUnprocessable();
+    }
+
+    public function test_copy_of_transfer_is_one_new_transaction_and_cannot_target_another_currency(): void
+    {
+        [, $project, $left, , $url] = $this->workspace();
+        $right = LedgerAccount::factory()->create(['project_id' => $project->id]);
+        $destination = LedgerAccount::factory()->create(['project_id' => $project->id]);
+        $id = $this->postJson("$url/transactions", $this->payload($left, ['kind' => 'transfer', 'target_account_id' => $right->id]))->assertCreated()->json('data.id');
+        $payload = ['copy' => true, 'revision' => 1, 'account_id' => $destination->id, 'occurred_on' => '2026-10-24', 'side' => 'target', 'idempotency_key' => (string) Str::uuid()];
+        $this->postJson("$url/transactions/$id/move", $payload)->assertOk()->assertJsonPath('data.account_id', $left->id)->assertJsonPath('data.target_account_id', $destination->id);
+        $this->assertDatabaseCount('ledger_transactions', 2);
+        $destination->update(['currency' => 'USD']);
+        $this->postJson("$url/transactions/$id/move", [...$payload, 'idempotency_key' => (string) Str::uuid()])->assertUnprocessable();
+        $this->assertDatabaseCount('ledger_transactions', 2);
+    }
 }
